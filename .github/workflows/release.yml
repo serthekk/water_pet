@@ -65,6 +65,9 @@ jobs:
           $v = "$env:GITHUB_REF_NAME".TrimStart('v')
           # 1.2.0 -> latest.yml; 1.2.0-beta.1 -> beta.yml (the beta channel's feed)
           $feed = if ($v -match '-([A-Za-z]+)') { "$($Matches[1].ToLower()).yml" } else { 'latest.yml' }
+          # electron-builder's GitHub publisher always writes latest.yml (it has no channels);
+          # the app's updater asks a beta release for beta.yml first, so give it that name
+          if ($feed -ne 'latest.yml' -and -not (Test-Path "release/$feed") -and (Test-Path 'release/latest.yml')) { Copy-Item 'release/latest.yml' "release/$feed" }
           $want = @("WaterCat-Setup-$v.exe", "WaterCat-Setup-$v.exe.blockmap", $feed, "WaterCat-Portable-$v.exe")
           $missing = $want | Where-Object { -not (Test-Path "release/$_") }
           if ($missing) { Write-Host "::error::The build did not produce: $($missing -join ', ')"; Get-ChildItem release -File | ForEach-Object Name; exit 1 }
