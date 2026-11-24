@@ -687,10 +687,12 @@
     playMeow();
   });
   api.onHideBubble((reason) => hideBubble(reason || 'main'));
-  // First launch: Gargorl's line for 10 s (not persistent; a reminder/alarm replaces it).
+  // Quiet, short bubbles (not persistent; a reminder/alarm replaces them, they never cover one):
+  // first launch: Gargorl's line; 'update': a new version is ready. No sound.
   api.onIntro((b) => {
-    if (bubble.classList.contains('shown') && bubbleKind !== 'intro') return;
-    showBubble(b.text, false, 'intro');
+    const kind = b.kind || 'intro';
+    if (bubble.classList.contains('shown') && bubbleKind !== kind) return;
+    showBubble(b.text, false, kind);
   });
   api.onBubbleSet((b) => {
     if (bubble.classList.contains('shown') && bubbleKind === b.kind && bubbleText.textContent.endsWith(b.text)) return;

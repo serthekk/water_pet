@@ -126,6 +126,11 @@ const DEFAULT_SETTINGS = {
   quietSleepEnabled: true, // sleep during quiet hours, wake when they end
   systemIdleSleep: false, // also count the whole computer being idle (off: she may be gaming with the cat ignored)
   catLastSleepSpot: '', // per cat: Random never repeats this one
+  // updates (updater.js)
+  autoUpdate: true, // check + download quietly; installs on quit or 'Restart to update'
+  updateChannel: 'stable', // stable | beta (beta also offers pre-releases)
+  lastUpdateCheck: '', // ISO time of the last check
+  skippedVersion: '', // 'Skip this version'
   idleAnimations: true,
   chaseMouse: false,
   position: null,
@@ -348,6 +353,7 @@ const TICK_MS = 15 * 1000;
 
 let win = null;
 let tray = null;
+let updater = null; // updater.js, created in app.whenReady (never in dev / selftest)
 let quitting = false;
 let settings = { ...DEFAULT_SETTINGS };
 let day = { date: todayKey(), cups: 0 };
@@ -470,7 +476,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
     const list = raw.customPresets.map((p) => p && sanitizeCustomPreset(p)).filter(Boolean);
     if (list.length === raw.customPresets.length) s.customPresets = list;
   }
-  for (const k of ['tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
+  for (const k of ['autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
   // older files: sleepWhenIdle / sleepAfterMinutes (old default 10 -> new default 15)
   if (typeof raw.idleSleepEnabled !== 'boolean' && typeof raw.sleepWhenIdle === 'boolean') s.idleSleepEnabled = raw.sleepWhenIdle;
   if (raw.idleSleepMinutes === undefined && Number.isInteger(raw.sleepAfterMinutes) && raw.sleepAfterMinutes !== 10) raw = { ...raw, idleSleepMinutes: Math.min(120, raw.sleepAfterMinutes) };
@@ -505,6 +511,9 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
   const alarms = sanitizeAlarms(raw.alarms);
   if (alarms) s.alarms = alarms;
   if (Number.isInteger(raw.layoutRows)) s.layoutRows = raw.layoutRows;
+  if (['stable', 'beta'].includes(raw.updateChannel)) s.updateChannel = raw.updateChannel;
+  if (typeof raw.lastUpdateCheck === 'string' && raw.lastUpdateCheck.length <= 40) s.lastUpdateCheck = raw.lastUpdateCheck;
+  if (typeof raw.skippedVersion === 'string' && /^(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)?$/.test(raw.skippedVersion)) s.skippedVersion = raw.skippedVersion;
   const pos = raw.position;
   if (pos && Number.isFinite(pos.x) && Number.isFinite(pos.y)) s.position = { x: Math.round(pos.x), y: Math.round(pos.y) };
   else if (Array.isArray(pos) && pos.length === 2 && pos.every(Number.isFinite)) s.position = { x: pos[0], y: pos[1] };
@@ -1006,7 +1015,8 @@ function saveSettings() {
 
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
-  'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked'];
+  'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
+  'autoUpdate', 'updateChannel'];
 
 function publicSettings() {
   syncActive(); // the cat list must show the active cat's latest name
@@ -1082,6 +1092,7 @@ function applySettings(partial) {
   if (changed.includes('repeatMinutes') && nagging) nagging.nextAt = Date.now() + settings.repeatMinutes * 60000;
   if (changed.includes('idleSleepEnabled') && !settings.idleSleepEnabled && behavior.sleepReason === 'idle') wakeUp('idle sleep turned off');
   if (changed.includes('quietSleepEnabled') && !settings.quietSleepEnabled && behavior.sleepReason === 'quiet hours') wakeUp('quiet-hours sleep turned off');
+  if (updater && changed.some((k) => k === 'autoUpdate' || k === 'updateChannel')) updater.settingsChanged(changed);
   if (changed.includes('sleepSpot') && behavior.state === 'sleeping') log(`sleeping spot for ${settings.activeCatId} set to ${settings.sleepSpot} (used next time she sleeps)`);
   if (changed.includes('catSize')) applyWinSize();
   if (['breed', 'tail', 'whiskersEnabled', 'sleepSpotColors', ...LOOK_KEYS].some((k) => changed.includes(k)) && win && !win.isDestroyed()) {
@@ -2218,6 +2229,7 @@ function switchCatMenu(source) {
 
 function buildContextMenu() {
   return Menu.buildFromTemplate([
+    ...updateMenuItems(),
     ...catHeaderItems('menu'),
     { label: `Pets today: ${petsOf().today}`, enabled: false },
     switchCatMenu('menu'),
@@ -2257,6 +2269,7 @@ function updateTrayMenu() {
   if (!tray) return;
   const visible = !!(win && !win.isDestroyed() && win.isVisible());
   tray.setContextMenu(Menu.buildFromTemplate([
+    ...updateMenuItems(),
     ...catHeaderItems('tray'),
     { type: 'separator' },
     { label: visible ? 'Hide cat' : 'Show cat', click: () => (visible ? hideCat('tray') : showCat()) },
@@ -2273,6 +2286,49 @@ function updateTrayMenu() {
     { label: 'Restart cat', click: () => restartApp('tray') },
     { label: 'Quit', click: () => quitApp('tray') },
   ]));
+}
+
+// --- Updates (updater.js) ------------------------------------------------------
+// Created in app.whenReady only. Skipped in the selftest (it tests a fake) and in dev
+// (unless FORCE_UPDATER=1 + dev-app-update.yml).
+function initUpdater() {
+  if (SELFTEST) return log('updater: selftest, skipped');
+  try {
+    updater = require('./updater.js').create(updaterDeps());
+    updater.start();
+  } catch (err) {
+    updater = null;
+    log('updater: could not start (the app works without it)', err);
+  }
+  return undefined;
+}
+function updaterDeps(extra = {}) {
+  return {
+    app,
+    shell,
+    log,
+    getSettings: () => settings,
+    setSettings: (p) => { Object.assign(settings, p); saveSettings(); },
+    // checks wait while something is on her screen
+    busyReason: () => (nagging ? 'a water reminder is up' : activeAlarm ? 'an alarm is up' : null),
+    // the one "update ready" bubble: never in quiet hours, while she sleeps / is hidden,
+    // over another bubble, or over a fullscreen game
+    announceBlock: async () => {
+      if (isQuietNow()) return 'quiet hours';
+      if (behavior.state === 'sleeping') return 'the cat is asleep';
+      if (!win || win.isDestroyed() || !win.isVisible()) return 'the cat is hidden';
+      if (nagging || activeAlarm) return 'another bubble is up';
+      const fs0 = await require('./fullscreen.js').query();
+      return fs0.busy ? `fullscreen app (${fs0.name})` : null;
+    },
+    announce: (text) => { if (win && !win.isDestroyed()) win.webContents.send('bubble-intro', { text, kind: 'update' }); },
+    changed: () => updateTrayMenu(),
+    ...extra,
+  };
+}
+function updateMenuItems() {
+  const items = updater ? updater.menuItems() : [];
+  return items.length ? [...items, { type: 'separator' }] : [];
 }
 
 // --- Hotkey / login item -----------------------------------------------------
@@ -4337,7 +4393,160 @@ async function runSelftest() {
       if (win && !win.isDestroyed()) win.webContents.send('colors-changed', currentLook());
     }
 
-    // 28. Hotkey + assets
+    // 28. Updater (fake electron-updater + fake GitHub API: no network)
+    {
+      const U = require('./updater.js');
+      const EventEmitter = require('events');
+      record('updater: not running in selftest / dev (created only in whenReady)', updater === null);
+      record('updater: mode detection (dev, dev-forced, installer, portable)', U.modeFor({ isPackaged: false, env: {} }) === 'dev'
+        && U.modeFor({ isPackaged: false, env: { FORCE_UPDATER: '1' } }) === 'dev-forced' && U.modeFor({ isPackaged: true, env: {} }) === 'installer'
+        && U.modeFor({ isPackaged: true, env: { PORTABLE_EXECUTABLE_FILE: 'C:\\x\\WaterCat.exe' } }) === 'portable');
+      const cv = [['0.1.1', '0.1.0', 1], ['0.1.0', '0.1.0', 0], ['v1.0.0', '0.9.9', 1], ['1.2.0', '1.2.0-beta.3', 1], ['1.2.0-beta.3', '1.2.0-beta.10', -1], ['0.10.0', '0.9.0', 1], ['junk', '0.1.0', 0]];
+      record('updater: version comparison (semver, pre-releases, junk)', cv.every(([a, b, w]) => U.compareVersions(a, b) === w));
+      record('updater: only this repo\'s release pages may be opened', U.isAllowedReleaseUrl('https://github.com/serthekk/water_pet/releases/tag/v0.1.1')
+        && !U.isAllowedReleaseUrl('https://github.com/someone/water_pet/releases') && !U.isAllowedReleaseUrl('https://github.com.evil.io/serthekk/water_pet/')
+        && !U.isAllowedReleaseUrl('http://github.com/serthekk/water_pet/') && !U.isAllowedReleaseUrl('javascript:alert(1)'));
+      const srcs = ['main.js', 'updater.js', 'fullscreen.js'].map((f) => fs.readFileSync(path.join(__dirname, f), 'utf8'));
+      record('no console.log in main-process files', srcs.every((s) => !/console\.log\(/.test(s.replace(/\/\/.*$/gm, ''))));
+      record('updater.js requires electron-updater lazily (not at the top)', !/^const .*require\('electron-updater'\)/m.test(srcs[1]) && /require\('electron-updater'\)/.test(srcs[1]));
+
+      // a fake electron-updater
+      const mkFake = () => {
+        const f = new EventEmitter();
+        Object.assign(f, { calls: [], autoDownload: true, autoInstallOnAppQuit: false, allowPrerelease: null });
+        f.setFeedURL = (o) => f.calls.push(['feed', o]);
+        f.checkForUpdates = async () => { f.calls.push(['check']); f.emit('checking-for-update'); if (f.next) await f.next(f); return null; };
+        f.downloadUpdate = async () => { f.calls.push(['download']); f.emit('download-progress', { percent: 50 }); f.emit('update-downloaded', { version: f.version }); return []; };
+        f.quitAndInstall = (...a) => f.calls.push(['quitAndInstall', ...a]);
+        return f;
+      };
+      const fakeSettings = { autoUpdate: true, updateChannel: 'stable', skippedVersion: '', lastUpdateCheck: '' };
+      let announcedText = null;
+      let block = null;
+      const mk = (extra) => U.create(updaterDeps({
+        app: { isPackaged: true, getVersion: () => '0.1.0' },
+        shell: { openExternal: (u) => { mk.opened = u; } },
+        env: {},
+        getSettings: () => fakeSettings,
+        setSettings: (p) => Object.assign(fakeSettings, p),
+        announceBlock: async () => block,
+        announce: (t) => { announcedText = t; },
+        changed: () => {},
+        ...extra,
+      }));
+      // 1. update found -> downloads -> ready; never installs by itself
+      const fake = mkFake();
+      fake.version = '0.1.1';
+      fake.next = (f) => f.emit('update-available', { version: '0.1.1' });
+      const u1 = mk({ autoUpdater: fake });
+      await u1.check('manual');
+      await sleep(50);
+      const s1 = u1.status();
+      const feed = fake.calls.find((c) => c[0] === 'feed');
+      record('updater: finds v0.1.1, downloads in the background, ready', s1.state === 'downloaded' && s1.version === '0.1.1' && fake.calls.some((c) => c[0] === 'download')
+        && fake.autoDownload === false && fake.autoInstallOnAppQuit === true, JSON.stringify(s1));
+      record('updater: feed is fixed to github serthekk/water_pet', !!feed && feed[1].provider === 'github' && feed[1].owner === 'serthekk' && feed[1].repo === 'water_pet');
+      record('updater: never calls quitAndInstall by itself', !fake.calls.some((c) => c[0] === 'quitAndInstall'));
+      const m1 = u1.menuItems().map((i) => i.label);
+      record('updater: menu offers "Restart to update (v0.1.1)" + skip', m1[0] === 'Restart to update (v0.1.1)' && m1[1] === 'Skip v0.1.1', m1.join(' | '));
+      // the one bubble: held back while she sleeps, shown when she may
+      block = 'the cat is asleep';
+      announcedText = null;
+      await u1._tryAnnounce();
+      const held = announcedText === null;
+      block = null;
+      await u1._tryAnnounce();
+      const shownOnce = announcedText === 'A new version is ready! 🐾 Right-click to update.';
+      announcedText = null;
+      await u1._tryAnnounce();
+      record('updater: "update ready" bubble held back while asleep, then shown ONCE', held && shownOnce && announcedText === null);
+      // Restart to update = the only quitAndInstall (silent, start again)
+      u1.restartToUpdate('selftest');
+      const qi = fake.calls.find((c) => c[0] === 'quitAndInstall');
+      record('updater: "Restart to update" installs silently and starts the app again', !!qi && qi[1] === true && qi[2] === true);
+      // 2. skip this version
+      const fake2 = mkFake();
+      fake2.version = '0.1.1';
+      fake2.next = (f) => f.emit('update-available', { version: '0.1.1' });
+      const u2 = mk({ autoUpdater: fake2 });
+      await u2.check('manual');
+      await sleep(50);
+      u2.skipVersion();
+      const skipOk = fakeSettings.skippedVersion === '0.1.1' && fake2.autoInstallOnAppQuit === false && u2.menuItems().length === 0;
+      const fake3 = mkFake();
+      fake3.next = (f) => f.emit('update-available', { version: '0.1.1' });
+      const u3 = mk({ autoUpdater: fake3 });
+      await u3.check('manual');
+      record('updater: "Skip" remembers the version; it is never downloaded again', skipOk && !fake3.calls.some((c) => c[0] === 'download') && u3.status().state === 'up-to-date');
+      fake3.next = (f) => f.emit('update-available', { version: '0.1.2' });
+      fake3.version = '0.1.2';
+      await u3.check('manual');
+      await sleep(50);
+      record('updater: a NEWER version than the skipped one is offered again', u3.status().state === 'downloaded' && u3.status().version === '0.1.2');
+      fakeSettings.skippedVersion = '';
+      // 3. failures never throw: offline / rate limit / GitHub down / bad signature
+      let threw = false;
+      const states = [];
+      for (const failWith of ['net::ERR_INTERNET_DISCONNECTED', 'HttpError: 403 rate limit exceeded', 'HttpError: 503', 'New version is not signed by the application owner']) {
+        const f = mkFake();
+        f.next = async () => { throw new Error(failWith); };
+        const u = mk({ autoUpdater: f });
+        try { states.push(`${(await u.check('auto'))}/${u.status().state}`); } catch (_) { threw = true; }
+        const f2 = mkFake();
+        f2.next = (x) => x.emit('error', new Error(failWith));
+        try { await mk({ autoUpdater: f2 }).check('auto'); } catch (_) { threw = true; }
+      }
+      record('updater: offline / rate limit / GitHub down / bad signature: logged, no throw, no popup', !threw && states.every((s) => s === "Couldn't check right now/error"), states.join(', '));
+      // 4. busy: no check while a reminder is up
+      {
+        const keepN = nagging;
+        const keepA = activeAlarm;
+        nagging = null;
+        activeAlarm = null;
+        const free = updaterDeps().busyReason();
+        nagging = { since: Date.now(), nextAt: 0, repeats: 0 };
+        const duringReminder = updaterDeps().busyReason();
+        nagging = keepN;
+        activeAlarm = keepA;
+        record('updater: postpones checks while a reminder is up', free === null && duringReminder === 'a water reminder is up');
+      }
+      // 5. channel
+      fakeSettings.updateChannel = 'beta';
+      const fb = mkFake();
+      await mk({ autoUpdater: fb }).check('manual');
+      record('updater: beta channel allows pre-releases', fb.allowPrerelease === true);
+      fakeSettings.updateChannel = 'stable';
+      // 6. dev mode: skipped
+      const ud = mk({ app: { isPackaged: false, getVersion: () => '0.1.0' }, autoUpdater: mkFake() });
+      record('updater: dev mode skips checks', ud.mode === 'dev' && /dev mode/.test(await ud.check('manual')));
+      // 7. portable: GitHub API -> "open download page"
+      const api = (status, body) => async (url) => { api.url = url; return { ok: status === 200, status, json: async () => body }; };
+      const up = mk({ env: { PORTABLE_EXECUTABLE_FILE: 'C:\\x\\WaterCat-Portable.exe' }, fetch: api(200, { tag_name: 'v0.2.0', html_url: 'https://github.com/serthekk/water_pet/releases/tag/v0.2.0', draft: false, prerelease: false }) });
+      await up.check('manual');
+      const pm = up.menuItems();
+      pm[0] && pm[0].click();
+      record('portable: API check offers "Update available (v0.2.0) - open download page"', up.mode === 'portable' && api.url === 'https://api.github.com/repos/serthekk/water_pet/releases/latest'
+        && pm[0] && pm[0].label === 'Update available (v0.2.0) - open download page' && mk.opened === 'https://github.com/serthekk/water_pet/releases/tag/v0.2.0', pm.map((i) => i.label).join(' | '));
+      const ue = mk({ env: { PORTABLE_EXECUTABLE_FILE: 'x' }, fetch: api(200, { tag_name: 'v0.3.0', html_url: 'https://evil.example/download', draft: false }) });
+      await ue.check('manual');
+      record('portable: a foreign download URL is never used (falls back to our releases page)', ue.status().releaseUrl === 'https://github.com/serthekk/water_pet/releases');
+      const ur = mk({ env: { PORTABLE_EXECUTABLE_FILE: 'x' }, fetch: api(403, { message: 'rate limit' }) });
+      const urText = await ur.check('manual');
+      const uo = mk({ env: { PORTABLE_EXECUTABLE_FILE: 'x' }, fetch: async () => { throw new Error('offline'); } });
+      const uoText = await uo.check('manual');
+      const same = mk({ env: { PORTABLE_EXECUTABLE_FILE: 'x' }, fetch: api(200, { tag_name: 'v0.1.0', html_url: 'https://github.com/serthekk/water_pet/releases/tag/v0.1.0' }) });
+      record('portable: rate limit / offline -> "Couldn\'t check", same version -> up to date', urText === "Couldn't check right now" && uoText === "Couldn't check right now"
+        && (await same.check('manual')) === "You're up to date" && same.menuItems().length === 0);
+      // 8. fullscreen helper answers
+      const fsq = await require('./fullscreen.js').query();
+      record('fullscreen check answers (SHQueryUserNotificationState)', typeof fsq.busy === 'boolean' && fsq.state >= 0, JSON.stringify(fsq));
+      // 9. settings keys
+      const us = sanitizeSettings({ autoUpdate: false, updateChannel: 'nightly', skippedVersion: 'evil; rm', lastUpdateCheck: '2026-11-24T00:00:00.000Z' });
+      record('settings: autoUpdate / updateChannel / skippedVersion validated', us.autoUpdate === false && us.updateChannel === 'stable' && us.skippedVersion === ''
+        && us.lastUpdateCheck === '2026-11-24T00:00:00.000Z' && DEFAULT_SETTINGS.autoUpdate === true);
+    }
+
+    // 29. Hotkey + assets
     record('hotkey registered', globalShortcut.isRegistered(HOTKEY), 'fails if the real app is running (it holds the hotkey)');
     const bowl = await win.webContents.executeJavaScript(`(() => { const b = document.getElementById('bowl').getBoundingClientRect(); const s = getComputedStyle(document.getElementById('bowl')); return { w: b.width, h: b.height, bg: s.backgroundImage, r: s.imageRendering, droplet: document.getElementById('count').textContent.includes('💧') }; })()`);
     try {
@@ -4391,6 +4600,7 @@ app.whenReady().then(() => {
     registerHotkey();
     startTimers();
     startBehavior();
+    initUpdater(); // only here, inside whenReady
     if (SELFTEST) runSelftest();
     else applyLoginItem();
     screen.on('display-removed', reclamp);

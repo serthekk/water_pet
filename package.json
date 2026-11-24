@@ -32,6 +32,8 @@
     },
     "files": [
       "main.js",
+      "updater.js",
+      "fullscreen.js",
       "preload.js",
       "renderer.js",
       "catsprite.js",
@@ -59,8 +61,18 @@
     ],
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.png"
     },
@@ -88,5 +100,8 @@
     "electron": "^34.5.8",
     "electron-builder": "^26.0.0",
     "pngjs": "^7.0.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }
