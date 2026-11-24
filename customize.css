@@ -157,6 +157,12 @@ button {
 button:hover { background: #f4a6b8; }
 button:disabled { opacity: 0.5; cursor: default; }
 
+.updates { margin-top: 8px; padding: 5px 8px; background: #fff; border: 2px solid #ecdcc6; border-radius: 6px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.upd-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.upd-row button { font-size: 12px; padding: 0 8px; }
+.upd-row label { display: flex; align-items: center; gap: 4px; font-weight: 600; }
+#release-notes { color: #b4621c; margin-left: auto; }
+#update-status { margin: 0; min-height: 14px; }
 footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
 #status { font-size: 12px; color: #6b5a5a; }
 #status.error { color: #c0392b; }

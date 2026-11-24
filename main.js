@@ -51,7 +51,7 @@ for (const stream of [process.stdout, process.stderr]) {
 process.on('uncaughtException', (err) => log('UNCAUGHT EXCEPTION', err));
 process.on('unhandledRejection', (err) => log('UNHANDLED REJECTION', err));
 
-log(`---- WaterCat starting (electron ${process.versions.electron}, packaged=${app.isPackaged}, argv=${process.argv.slice(1).join(' ')})`);
+log(`---- WaterCat v${app.getVersion()} starting (electron ${process.versions.electron}, packaged=${app.isPackaged}, argv=${process.argv.slice(1).join(' ')})`);
 
 // ---------------------------------------------------------------------------
 // 2. Autoplay switch (must be before app is ready)
@@ -353,6 +353,7 @@ const TICK_MS = 15 * 1000;
 
 let win = null;
 let tray = null;
+let lastTrayMenu = null; // the tray menu as last built (selftest reads it)
 let updater = null; // updater.js, created in app.whenReady (never in dev / selftest)
 let quitting = false;
 let settings = { ...DEFAULT_SETTINGS };
@@ -1092,7 +1093,10 @@ function applySettings(partial) {
   if (changed.includes('repeatMinutes') && nagging) nagging.nextAt = Date.now() + settings.repeatMinutes * 60000;
   if (changed.includes('idleSleepEnabled') && !settings.idleSleepEnabled && behavior.sleepReason === 'idle') wakeUp('idle sleep turned off');
   if (changed.includes('quietSleepEnabled') && !settings.quietSleepEnabled && behavior.sleepReason === 'quiet hours') wakeUp('quiet-hours sleep turned off');
-  if (updater && changed.some((k) => k === 'autoUpdate' || k === 'updateChannel')) updater.settingsChanged(changed);
+  if (changed.some((k) => k === 'autoUpdate' || k === 'updateChannel')) {
+    if (updater) updater.settingsChanged(changed);
+    sendUpdateStatus();
+  }
   if (changed.includes('sleepSpot') && behavior.state === 'sleeping') log(`sleeping spot for ${settings.activeCatId} set to ${settings.sleepSpot} (used next time she sleeps)`);
   if (changed.includes('catSize')) applyWinSize();
   if (['breed', 'tail', 'whiskersEnabled', 'sleepSpotColors', ...LOOK_KEYS].some((k) => changed.includes(k)) && win && !win.isDestroyed()) {
@@ -2089,7 +2093,7 @@ function openCustomize() {
   }
   customizeWin = new BrowserWindow({
     width: 440,
-    height: 760,
+    height: 830, // + the updates footer
     useContentSize: true,
     show: false,
     resizable: false,
@@ -2248,6 +2252,8 @@ function buildContextMenu() {
     { label: 'Customize cat…', click: () => openCustomize() },
     { label: 'Settings…', click: () => openSettings() },
     { type: 'separator' },
+    ...versionMenuItems('menu'),
+    { type: 'separator' },
     { label: 'Hide cat', click: () => hideCat('menu') },
     { label: 'Restart cat', click: () => restartApp('menu') },
     { label: 'Quit', click: () => quitApp('menu') },
@@ -2268,7 +2274,7 @@ function createTray() {
 function updateTrayMenu() {
   if (!tray) return;
   const visible = !!(win && !win.isDestroyed() && win.isVisible());
-  tray.setContextMenu(Menu.buildFromTemplate([
+  lastTrayMenu = Menu.buildFromTemplate([
     ...updateMenuItems(),
     ...catHeaderItems('tray'),
     { type: 'separator' },
@@ -2283,9 +2289,12 @@ function updateTrayMenu() {
     { label: 'Customize cat…', click: () => openCustomize() },
     { label: 'Settings…', click: () => openSettings() },
     { type: 'separator' },
+    ...versionMenuItems('tray'),
+    { type: 'separator' },
     { label: 'Restart cat', click: () => restartApp('tray') },
     { label: 'Quit', click: () => quitApp('tray') },
-  ]));
+  ]);
+  tray.setContextMenu(lastTrayMenu);
 }
 
 // --- Updates (updater.js) ------------------------------------------------------
@@ -2322,13 +2331,50 @@ function updaterDeps(extra = {}) {
       return fs0.busy ? `fullscreen app (${fs0.name})` : null;
     },
     announce: (text) => { if (win && !win.isDestroyed()) win.webContents.send('bubble-intro', { text, kind: 'update' }); },
-    changed: () => updateTrayMenu(),
+    changed: () => { updateTrayMenu(); sendUpdateStatus(); },
     ...extra,
   };
 }
+// Top of the menus: "Restart to update (vX)" + skip, once an update is ready
+// (portable: "Update available - open download page").
 function updateMenuItems() {
   const items = updater ? updater.menuItems() : [];
   return items.length ? [...items, { type: 'separator' }] : [];
+}
+// Bottom of the menus: version line + "Check for updates" (with the last result).
+function versionMenuItems(source) {
+  const st = updateStatus();
+  let check = { label: st.lastResult ? `Check for updates (${st.lastResult})` : 'Check for updates', click: () => manualUpdateCheck(source) };
+  if (st.state === 'checking') check = { label: 'Checking for updates…', enabled: false };
+  if (st.state === 'downloading') check = { label: `Downloading v${st.version}… ${st.progress || 0}%`, enabled: false };
+  if (st.state === 'downloaded') check = { label: `Update ready (v${st.version})`, enabled: false };
+  return [{ label: `Version ${app.getVersion()}`, enabled: false }, check];
+}
+function updateStatus() {
+  const base = { current: app.getVersion(), mode: SELFTEST ? 'selftest' : 'off', state: 'off', version: null, progress: 0, lastResult: '', releaseUrl: 'https://github.com/serthekk/water_pet/releases' };
+  return { ...base, ...(updater ? updater.status() : {}), autoUpdate: settings.autoUpdate, updateChannel: settings.updateChannel, lastUpdateCheck: settings.lastUpdateCheck };
+}
+function sendUpdateStatus() {
+  if (customizeWin && !customizeWin.isDestroyed()) customizeWin.webContents.send('customize:update-status', updateStatus());
+}
+// "Check for updates" (menu / tray / Customize): she asked, so the answer is a small
+// quiet bubble from the cat (no sound) plus the menu / Customize text.
+async function manualUpdateCheck(source) {
+  log(`update check requested (${source})`);
+  let text = 'Updates are off here';
+  if (updater) {
+    try { text = await updater.check('manual'); } catch (err) { log('manual update check failed', err); text = "Couldn't check right now"; }
+  }
+  const st = updateStatus();
+  const bubble = st.state === 'downloaded' ? `Update ready (v${st.version})! 🐾 Right-click to update.`
+    : st.state === 'downloading' ? `Downloading v${st.version}… 🐾`
+      : st.state === 'available' ? `v${st.version} is out! 🐾 Right-click for the download page.`
+        : st.state === 'error' ? "Couldn't check right now 😿"
+          : /up to date/.test(text) ? "You're up to date 🐾" : text;
+  if (source !== 'customize' && win && !win.isDestroyed() && win.isVisible()) win.webContents.send('bubble-intro', { text: bubble, kind: 'update' });
+  updateTrayMenu();
+  sendUpdateStatus();
+  return { text: bubble, status: updateStatus() };
 }
 
 // --- Hotkey / login item -----------------------------------------------------
@@ -2413,7 +2459,18 @@ function registerIpc() {
   ipcMain.handle('customize:import', (_e, catId) => importLook(known(catId)));
   ipcMain.handle('customize:preview-sleep', (_e, spot) => previewSleep(String(spot)));
   // global (not per-cat) sleep settings edited from Customize
-  const GLOBAL_FROM_CUSTOMIZE = ['idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep'];
+  const GLOBAL_FROM_CUSTOMIZE = ['idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'autoUpdate', 'updateChannel'];
+  // updates (footer of the Customize window)
+  ipcMain.handle('customize:update-status', () => updateStatus());
+  ipcMain.handle('customize:check-updates', () => manualUpdateCheck('customize'));
+  ipcMain.handle('customize:restart-to-update', () => (updater ? updater.restartToUpdate('customize') : false));
+  ipcMain.handle('customize:release-notes', () => {
+    const st = updateStatus();
+    const url = st.version ? st.releaseUrl : `https://github.com/serthekk/water_pet/releases`;
+    if (updater) updater.openReleasePage(url);
+    else if (require('./updater.js').isAllowedReleaseUrl(url)) shell.openExternal(url);
+    return true;
+  });
   ipcMain.handle('customize:set-global', (_e, catId, partial) => {
     const p = {};
     for (const k of GLOBAL_FROM_CUSTOMIZE) if (partial && k in partial) p[k] = partial[k];
@@ -4544,6 +4601,73 @@ async function runSelftest() {
       const us = sanitizeSettings({ autoUpdate: false, updateChannel: 'nightly', skippedVersion: 'evil; rm', lastUpdateCheck: '2026-11-24T00:00:00.000Z' });
       record('settings: autoUpdate / updateChannel / skippedVersion validated', us.autoUpdate === false && us.updateChannel === 'stable' && us.skippedVersion === ''
         && us.lastUpdateCheck === '2026-11-24T00:00:00.000Z' && DEFAULT_SETTINGS.autoUpdate === true);
+
+      // 10. Stage 4: menus + Customize footer, in each updater state
+      const labels = (m) => m.items.map((i) => i.label).filter(Boolean);
+      const trayLabels = () => { updateTrayMenu(); return labels(lastTrayMenu || { items: [] }); };
+      const ver = `Version ${app.getVersion()}`;
+      const idle = labels(buildContextMenu());
+      const verItem = buildContextMenu().items.find((i) => i.label === ver);
+      record('menu: disabled "Version X.Y.Z" + "Check for updates"; no "Restart to update" without an update', idle.includes(ver) && verItem && verItem.enabled === false
+        && idle.includes('Check for updates') && !idle.some((l) => /^Restart to update/.test(l)), idle.join(' | '));
+      const manual = await manualUpdateCheck('selftest'); // selftest: no updater -> a clear answer, no throw
+      record('"Check for updates" without an updater answers, never throws', manual.text === 'Updates are off here');
+      const keepUpdater = updater;
+      const fs4 = mkFake();
+      fs4.version = '0.1.1';
+      fs4.next = (f) => f.emit('update-available', { version: '0.1.1' });
+      updater = mk({ autoUpdater: fs4 });
+      const viaMenu = await manualUpdateCheck('selftest');
+      const ready = labels(buildContextMenu());
+      record('menu after an update downloaded: "Restart to update (v0.1.1)" on top + "Update ready" line', ready[0] === 'Restart to update (v0.1.1)'
+        && ready.includes('Update ready (v0.1.1)') && viaMenu.text === 'Update ready (v0.1.1)! 🐾 Right-click to update.', ready.slice(0, 3).join(' | '));
+      const fe = mkFake();
+      fe.next = async () => { throw new Error('offline'); };
+      updater = mk({ autoUpdater: fe });
+      const offline = await manualUpdateCheck('selftest');
+      record('menu after a failed check: "Check for updates (Couldn\'t check right now)"', offline.text === "Couldn't check right now 😿"
+        && labels(buildContextMenu()).includes("Check for updates (Couldn't check right now)"));
+      const fu = mkFake();
+      fu.next = (f) => f.emit('update-not-available', { version: '0.1.0' });
+      updater = mk({ autoUpdater: fu });
+      record('"Check for updates" when current: "You\'re up to date"', (await manualUpdateCheck('selftest')).text === "You're up to date 🐾");
+      // Customize footer
+      updater = mk({ autoUpdater: fs4 }); // a fresh one in the "downloaded" state
+      await updater.check('manual');
+      await sleep(50);
+      clearReports();
+      openCustomize();
+      if (await waitFor((r) => r.type === 'customize:ready', 8000)) {
+        const cj = (code) => customizeWin.webContents.executeJavaScript(code);
+        await sleep(300);
+        const ft = await cj(`({ ver: document.getElementById('app-version').textContent, restart: !document.getElementById('restart-update').hidden,
+          rtext: document.getElementById('restart-update').textContent, status: document.getElementById('update-status').textContent,
+          auto: document.getElementById('autoUpdate').checked, beta: document.getElementById('betaUpdates').checked, notes: !!document.getElementById('release-notes') })`);
+        try { fs.writeFileSync(path.join(LOG_DIR, 'selftest-customize-updates.png'), (await customizeWin.webContents.capturePage()).toPNG()); } catch (err) { log('screenshot failed', err); }
+        record('Customize footer: version, "Restart to update", status, toggles, release notes link', ft.ver === `WaterCat v${app.getVersion()}` && ft.restart
+          && ft.rtext === 'Restart to update (v0.1.1)' && /Update ready \(v0\.1\.1\)/.test(ft.status) && ft.auto === settings.autoUpdate && ft.beta === false && ft.notes, JSON.stringify(ft));
+        await cj(`(() => { const c = document.getElementById('betaUpdates'); c.checked = true; c.dispatchEvent(new Event('change')); })()`);
+        await sleep(300);
+        await cj(`(() => { const c = document.getElementById('autoUpdate'); c.checked = false; c.dispatchEvent(new Event('change')); })()`);
+        await sleep(300);
+        const disk = readJsonSafe(settingsFile(), {});
+        record('Customize footer toggles save autoUpdate / updateChannel', settings.updateChannel === 'beta' && settings.autoUpdate === false
+          && disk.updateChannel === 'beta' && disk.autoUpdate === false);
+        applySettings({ updateChannel: 'stable', autoUpdate: true });
+        await sleep(200);
+        const back = await cj(`({ auto: document.getElementById('autoUpdate').checked, beta: document.getElementById('betaUpdates').checked })`);
+        record('Customize footer follows changes made elsewhere', back.auto === true && back.beta === false);
+        customizeWin.close();
+        await sleep(300);
+      }
+      updater = mk({ autoUpdater: fs4 });
+      await updater.check('manual');
+      await sleep(50);
+      const tl = trayLabels();
+      updater = keepUpdater;
+      const tl0 = trayLabels();
+      record('tray menu: Version + Check for updates; Restart to update only when ready', tl[0] === 'Restart to update (v0.1.1)' && tl.includes(ver)
+        && tl0.includes(ver) && tl0.includes('Check for updates') && !tl0.some((l) => /^Restart to update/.test(l)), tl.join(' | '));
     }
 
     // 29. Hotkey + assets

@@ -19,5 +19,11 @@ contextBridge.exposeInMainWorld('customizeApi', {
   previewSleep: (spot) => ipcRenderer.invoke('customize:preview-sleep', spot),
   setGlobal: (catId, partial) => ipcRenderer.invoke('customize:set-global', catId, partial),
   onChanged: (cb) => ipcRenderer.on('customize:changed', (_e, s) => cb(s)),
+  // updates (footer)
+  updateStatus: () => ipcRenderer.invoke('customize:update-status'),
+  checkUpdates: () => ipcRenderer.invoke('customize:check-updates'),
+  restartToUpdate: () => ipcRenderer.invoke('customize:restart-to-update'),
+  releaseNotes: () => ipcRenderer.invoke('customize:release-notes'),
+  onUpdateStatus: (cb) => ipcRenderer.on('customize:update-status', (_e, s) => cb(s)),
   report: (type, data) => ipcRenderer.send('report', 'customize:' + String(type), data),
 });

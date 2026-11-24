@@ -140,6 +140,21 @@
     </section>
   </main>
 
+  <!-- Updates (same for every cat) -->
+  <section class="updates" aria-label="Updates">
+    <div class="upd-row">
+      <strong id="app-version">WaterCat</strong>
+      <button id="check-updates" type="button">Check for updates</button>
+      <button id="restart-update" type="button" hidden>Restart to update</button>
+      <a id="release-notes" href="#">View release notes</a>
+    </div>
+    <span id="update-status" class="hint" aria-live="polite"></span>
+    <div class="upd-row">
+      <label><input id="autoUpdate" type="checkbox"> Update automatically</label>
+      <label><input id="betaUpdates" type="checkbox"> Include beta releases</label>
+    </div>
+  </section>
+
   <footer>
     <span id="status" aria-live="polite"></span>
     <button id="close" type="button">Close</button>

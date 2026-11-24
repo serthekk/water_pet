@@ -614,6 +614,49 @@
     if (catBusy || id !== selectedId) return; // the selection changed meanwhile: this answer is stale
     fill(v);
   });
+  // ---- updates (footer) ------------------------------------------------------------
+  function when(iso) {
+    if (!iso) return 'never';
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? 'never' : d.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+  }
+  function showUpdate(u) {
+    if (!u) return;
+    $('app-version').textContent = `WaterCat v${u.current}`;
+    const busy = u.state === 'checking' || u.state === 'downloading';
+    $('check-updates').disabled = busy || u.state === 'downloaded';
+    $('restart-update').hidden = u.state !== 'downloaded';
+    $('restart-update').textContent = `Restart to update (v${u.version})`;
+    const text = u.state === 'checking' ? 'Checking…'
+      : u.state === 'downloading' ? `Downloading v${u.version}… ${u.progress || 0}%`
+        : u.state === 'downloaded' ? `Update ready (v${u.version}): it installs when you quit, or restart now.`
+          : u.state === 'available' ? `v${u.version} is out - see the release notes to download it.`
+            : u.lastResult || '';
+    $('update-status').textContent = `${text}${text ? ' · ' : ''}last check: ${when(u.lastUpdateCheck)}`;
+    $('autoUpdate').checked = !!u.autoUpdate;
+    $('betaUpdates').checked = u.updateChannel === 'beta';
+    window.__update = u; // selftest
+  }
+  api.onUpdateStatus(showUpdate);
+  api.updateStatus().then(showUpdate);
+  $('check-updates').addEventListener('click', async () => {
+    $('check-updates').disabled = true;
+    $('update-status').textContent = 'Checking…';
+    const r = await api.checkUpdates();
+    showUpdate(r.status);
+    api.report('update-check', { text: r.text, state: r.status.state });
+  });
+  $('restart-update').addEventListener('click', () => api.restartToUpdate());
+  $('release-notes').addEventListener('click', (e) => { e.preventDefault(); api.releaseNotes(); });
+  $('autoUpdate').addEventListener('change', async (e) => {
+    await api.setGlobal(selectedId, { autoUpdate: e.target.checked });
+    showStatus(e.target.checked ? 'Updates: automatic' : 'Updates: only when you check');
+  });
+  $('betaUpdates').addEventListener('change', async (e) => {
+    await api.setGlobal(selectedId, { updateChannel: e.target.checked ? 'beta' : 'stable' });
+    showStatus(e.target.checked ? 'Beta releases included' : 'Stable releases only');
+  });
+
   $('close').addEventListener('click', () => window.close());
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.close(); });
 
