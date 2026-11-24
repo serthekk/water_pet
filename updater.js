@@ -96,6 +96,7 @@ function create(deps) {
   let lastProgressLog = -1;
   let started = false;
   let checking = null; // the running check (a second request joins it)
+  const listeners = []; // our autoUpdater handlers (removed by stop())
 
   const S = () => deps.getSettings();
   const safe = (name, fn) => (...args) => {
@@ -124,19 +125,23 @@ function create(deps) {
       debug: () => {},
     };
     au.autoDownload = false; // we start the download ourselves, so a skipped version is never fetched
-    au.autoInstallOnAppQuit = true; // installs when she quits; we never call quitAndInstall on our own
+    // installs when she quits; we never call quitAndInstall on our own. Never with the local test feed:
+    // its download is dummy bytes, not an installer.
+    au.autoInstallOnAppQuit = mode !== 'dev-forced';
     au.allowDowngrade = false;
     if (mode === 'dev-forced') {
       au.forceDevUpdateConfig = true; // reads dev-app-update.yml (local test feed)
+      if (deps.updateConfigPath) au.updateConfigPath = deps.updateConfigPath; // selftest: its own test feed
     } else if (typeof au.setFeedURL === 'function') {
       au.setFeedURL({ provider: 'github', owner: OWNER, repo: REPO, releaseType: 'release' });
     }
     configure();
-    au.on('checking-for-update', safe('checking', () => set({ state: 'checking', error: null })));
-    au.on('update-not-available', safe('not-available', (info) => {
+    const on = (ev, fn) => { au.on(ev, fn); listeners.push([ev, fn]); };
+    on('checking-for-update', safe('checking', () => set({ state: 'checking', error: null })));
+    on('update-not-available', safe('not-available', (info) => {
       set({ state: 'up-to-date', version: null, lastResult: "You're up to date" }, `up to date (latest ${info && info.version}, running ${current})`);
     }));
-    au.on('update-available', safe('available', (info) => {
+    on('update-available', safe('available', (info) => {
       const v = info && info.version;
       if (compareVersions(v, current) <= 0) {
         return set({ state: 'up-to-date', version: null, lastResult: "You're up to date" }, `feed offered ${v}, not newer than ${current}: ignored`);
@@ -151,7 +156,7 @@ function create(deps) {
         .catch((err) => fail('download', err));
       return undefined;
     }));
-    au.on('download-progress', safe('progress', (p) => {
+    on('download-progress', safe('progress', (p) => {
       const pct = Math.floor((p && p.percent) || 0);
       st.progress = pct;
       if (pct >= lastProgressLog + 25) {
@@ -159,13 +164,13 @@ function create(deps) {
         log(`updater: downloading v${st.version}: ${pct}%`);
       }
     }));
-    au.on('update-downloaded', safe('downloaded', (info) => {
+    on('update-downloaded', safe('downloaded', (info) => {
       const v = (info && info.version) || st.version;
-      au.autoInstallOnAppQuit = !skipped(v);
+      au.autoInstallOnAppQuit = mode !== 'dev-forced' && !skipped(v);
       set({ state: 'downloaded', version: v, progress: 100, lastResult: `Update ready (v${v})` }, `v${v} downloaded - installs on quit or "Restart to update"`);
       announceSoon();
     }));
-    au.on('error', safe('error', (err) => fail('autoUpdater', err)));
+    on('error', safe('error', (err) => fail('autoUpdater', err)));
     return au;
   }
 
@@ -289,6 +294,10 @@ function create(deps) {
   function restartToUpdate(source = 'menu') {
     if (st.state !== 'downloaded' || !au) return false;
     log(`updater: RESTART TO UPDATE v${st.version} (${source})`);
+    if (mode === 'dev-forced') {
+      log('updater: dev test feed - not installing (the test download is not a real installer)');
+      return true;
+    }
     try {
       au.quitAndInstall(true, true); // silent install, then start WaterCat again
       return true;
@@ -341,6 +350,7 @@ function create(deps) {
   function stop() {
     clearTimeout(timer);
     clearTimeout(announceTimer);
+    if (au) for (const [ev, fn] of listeners.splice(0)) au.removeListener(ev, fn);
   }
   function settingsChanged(keys) {
     if (keys.includes('updateChannel')) {
@@ -361,7 +371,7 @@ function create(deps) {
     openReleasePage,
     menuItems,
     settingsChanged,
-    status: () => ({ ...st, mode, current }),
+    status: () => ({ ...st, mode, current, installsOnQuit: !!(au && au.autoInstallOnAppQuit) }),
     _tryAnnounce: tryAnnounce, // selftest
   };
 }

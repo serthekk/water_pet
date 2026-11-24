@@ -4668,6 +4668,64 @@ async function runSelftest() {
       const tl0 = trayLabels();
       record('tray menu: Version + Check for updates; Restart to update only when ready', tl[0] === 'Restart to update (v0.1.1)' && tl.includes(ver)
         && tl0.includes(ver) && tl0.includes('Check for updates') && !tl0.some((l) => /^Restart to update/.test(l)), tl.join(' | '));
+
+      // where the updater starts: once, inside app.whenReady, and main.js never loads electron-updater
+      const mainSrc = srcs[0];
+      const inits = [...mainSrc.matchAll(/^\s*initUpdater\(\);/gm)];
+      record('updater is started once, inside app.whenReady (never at top level)', inits.length === 1 && inits[0].index > mainSrc.indexOf('app.whenReady().then(')
+        && !/require\('electron-updater'\)/.test(mainSrc));
+    }
+
+    // 28b. The REAL electron-updater against a local test feed (dev selftest only, no internet):
+    // up to date, server error, offline, bad checksum, and a full download.
+    if (!app.isPackaged && fs.existsSync(path.join(__dirname, 'tools', 'update-test-server.js'))) {
+      const U = require('./updater.js');
+      const { startServer } = require('./tools/update-test-server.js');
+      const cacheDir = path.join(process.env.LOCALAPPDATA || app.getPath('temp'), 'water-cat-tracker-selftest-updater');
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+      const cfg = path.join(app.getPath('userData'), 'selftest-app-update.yml');
+      const fakeS = { autoUpdate: true, updateChannel: 'stable', skippedVersion: '', lastUpdateCheck: '' };
+      const run = async (mode, version, { offline = false } = {}) => {
+        const srv = await startServer({ port: 0, mode, version, current: app.getVersion(), size: 1024 * 1024, bytesPerSec: 4 * 1024 * 1024, quiet: true });
+        if (offline) await srv.close();
+        fs.writeFileSync(cfg, `provider: generic\nurl: ${srv.url}\nupdaterCacheDirName: water-cat-tracker-selftest-updater\n`);
+        const seen = [];
+        let u = null;
+        u = U.create(updaterDeps({
+          env: { FORCE_UPDATER: '1' },
+          updateConfigPath: cfg,
+          getSettings: () => fakeS,
+          setSettings: (p) => Object.assign(fakeS, p),
+          announceBlock: async () => 'selftest',
+          announce: () => {},
+          changed: () => { if (u) seen.push(u.status().state); },
+        }));
+        let threw = false;
+        let text = '';
+        try { text = await u.check('manual'); } catch (_) { threw = true; }
+        const t0 = Date.now();
+        while (u.status().state === 'downloading' && Date.now() - t0 < 20000) await sleep(100);
+        const st = u.status();
+        const restarted = st.state === 'downloaded' ? u.restartToUpdate('selftest') : null;
+        u.stop();
+        if (!offline) await srv.close();
+        return { mode: u.mode, text, threw, st, seen, requests: srv.requests, restarted };
+      };
+      const r1 = await run('current');
+      record('test feed: same version -> "You\'re up to date"', r1.mode === 'dev-forced' && !r1.threw && r1.st.state === 'up-to-date' && r1.text === "You're up to date", JSON.stringify({ t: r1.text, s: r1.st.state }));
+      const r2 = await run('fail');
+      record('test feed: server error -> "Couldn\'t check right now", no throw', !r2.threw && r2.st.state === 'error' && r2.text === "Couldn't check right now", r2.st.error);
+      const r3 = await run('ok', '0.1.1', { offline: true });
+      record('test feed: offline -> "Couldn\'t check right now", no throw', !r3.threw && r3.st.state === 'error', r3.st.error);
+      const r4 = await run('badsha', '0.1.2');
+      record('test feed: a download that fails its checksum is rejected (never installs)', !r4.threw && r4.st.state === 'error' && /sha512|checksum/i.test(r4.st.error || '')
+        && r4.requests.includes('/WaterCat-Setup-0.1.2.exe'), r4.st.error);
+      const r5 = await run('ok', '0.1.1');
+      record('test feed: v0.1.1 found -> downloading -> downloaded (real electron-updater)', !r5.threw && r5.st.state === 'downloaded' && r5.st.version === '0.1.1'
+        && r5.st.installsOnQuit === false && r5.seen.includes('downloading') && r5.requests.includes('/latest.yml') && r5.requests.includes('/WaterCat-Setup-0.1.1.exe'), `${r5.st.state} ${r5.seen.join('>')} ${r5.requests.join(',')}`);
+      record('test feed: "Restart to update" in dev test mode logs only (app keeps running)', r5.restarted === true && !quitting);
+      fs.rmSync(cacheDir, { recursive: true, force: true });
+      fs.rmSync(cfg, { force: true });
     }
 
     // 29. Hotkey + assets

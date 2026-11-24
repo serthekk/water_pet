@@ -1,0 +1,5 @@
+# Local test feed for the updater (dev only: used when FORCE_UPDATER=1 and the app runs
+# from source). Start it with: node tools/update-test-server.js. Never packaged.
+provider: generic
+url: http://127.0.0.1:47613/
+updaterCacheDirName: water-cat-tracker-updater-dev

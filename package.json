@@ -20,7 +20,8 @@
     "build": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always",
     "version:patch": "npm version patch -m \"Release v%s\"",
-    "version:minor": "npm version minor -m \"Release v%s\""
+    "version:minor": "npm version minor -m \"Release v%s\"",
+    "update-test-server": "node tools/update-test-server.js"
   },
   "build": {
     "appId": "com.serthekk.waterpet",

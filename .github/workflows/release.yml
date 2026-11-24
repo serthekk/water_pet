@@ -66,6 +66,8 @@ jobs:
           $v = $tag.TrimStart('v')
           $notes = gh api "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" -f tag_name=$tag --jq .body
           gh release edit $tag --repo $env:GITHUB_REPOSITORY --notes "$notes"
+          # a beta (1.2.0-beta.1) must be a GitHub pre-release: stable apps only look at "latest"
+          if ($v -match '-') { gh release edit $tag --repo $env:GITHUB_REPOSITORY --prerelease; Write-Host "Marked $tag as a pre-release (beta channel only)" }
           $assets = @(gh release view $tag --repo $env:GITHUB_REPOSITORY --json assets --jq '.assets[].name')
           Write-Host "Release assets: $($assets -join ', ')"
           # 1.2.0 -> latest.yml; 1.2.0-beta.1 -> beta.yml (the beta channel's feed)
