@@ -1,0 +1,216 @@
+/* Window size follows the cat size (WIN_W / WIN_H in main.js; 240 x 236 at 100%).
+   Everything except the cat, counter and bubble is transparent. */
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* Overlays never take the mouse. */
+#bubble, #count {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#count {
+  top: 76px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  text-shadow: 0 0 2px #1d1616, 0 0 2px #1d1616, 1px 1px 0 #1d1616;
+}
+
+/* 12x7 cat food bowl at exactly 3x. Never smooth-scaled. */
+#bowl {
+  width: 36px;
+  height: 21px;
+  flex: none;
+  background: url('assets/bowl.png') no-repeat 0 0 / 36px 21px;
+  image-rendering: pixelated;
+}
+
+/* Bottom edge sits just above the counter (y=72) and it grows upward: alarm texts
+   (up to 120 chars) wrap to max 3 lines and still fit in the 96 px top band. */
+#bubble {
+  top: 72px;
+  transform: translate(-50%, -100%);
+  width: max-content;
+  max-width: 212px;
+  white-space: normal;
+  text-align: center;
+  overflow-wrap: anywhere;
+  line-height: 16px;
+  padding: 6px 10px;
+  background: #fff6ea;
+  color: #3b2f2f;
+  font-size: 13px;
+  font-weight: 600;
+  border: 2px solid #3b2f2f;
+  border-radius: 10px;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+#bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  margin-left: -8px;
+  border: 8px solid transparent;
+  border-top-color: #3b2f2f;
+  border-bottom: 0;
+}
+#bubble.shown {
+  visibility: visible;
+  opacity: 1;
+}
+/* 3 lines max (the clamp lives on the inner span so the tail isn't clipped). */
+#bubble-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+/* Alarms look a little different from the water reminder. */
+#bubble.alarm { background: #f4a6b8; }
+
+/* The pet area: a real size and a near-invisible background, so Windows
+   doesn't pass clicks through the sprite's transparent pixels. */
+#pet {
+  position: absolute;
+  left: 48px;
+  top: 82px;
+  width: 144px;
+  height: 148px;
+  background: rgba(0, 0, 0, 0.01);
+  cursor: grab;
+  touch-action: none; /* pen/touch: no panning gestures that cancel the press */
+}
+#pet.dragging { cursor: grabbing; }
+
+/* Sprite canvas: 30x19 cells, each a whole number of px (the cat size), drawn cell by
+   cell, never smooth-scaled. renderer.js sets its size/left. #pet (hit area) is on top. */
+#sprite {
+  position: absolute;
+  left: 0;
+  top: 96px;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+#sprite.hop { animation: hop 0.32s steps(4) 1; }
+@keyframes hop {
+  0%   { transform: translateY(0); }
+  25%  { transform: translateY(-8px); }
+  50%  { transform: translateY(-16px); }
+  75%  { transform: translateY(-8px); }
+  100% { transform: translateY(0); }
+}
+
+/* z z z above the sleeping cat (head is on the left of the curl). */
+#zzz {
+  position: absolute;
+  left: 62px; /* moved with the cat size by renderer.js */
+  top: 112px;
+  width: 60px;
+  height: 40px;
+  pointer-events: none;
+  display: none;
+}
+#zzz.shown { display: block; }
+#zzz span {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  font: bold 14px/1 'Segoe UI', sans-serif;
+  color: #ffffff;
+  text-shadow: 0 0 2px #1d1616, 0 0 2px #1d1616, 1px 1px 0 #1d1616;
+  opacity: 0;
+  animation: zfloat 3s steps(12) infinite; /* stepped: ~4 repaints/s, light on games */
+}
+#zzz span:nth-child(2) { animation-delay: 1s; font-size: 17px; }
+#zzz span:nth-child(3) { animation-delay: 2s; font-size: 21px; }
+@keyframes zfloat {
+  0%   { transform: translate(0, 0); opacity: 0; }
+  15%  { opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: translate(26px, -34px); opacity: 0; }
+}
+
+/* Floating pixel hearts when she's petted (never take the mouse). */
+#hearts { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+#hearts canvas {
+  position: absolute;
+  image-rendering: pixelated;
+  pointer-events: none;
+  animation: heartUp 1.6s steps(8) forwards;
+}
+@keyframes heartUp {
+  0%   { transform: translate(0, 0); opacity: 0; }
+  15%  { opacity: 1; }
+  75%  { opacity: 1; }
+  100% { transform: translate(var(--dx, 0px), -56px); opacity: 0; }
+}
+
+/* Resize handle (bottom-right corner, on hover, when "Resize with the mouse" is on). */
+#resize-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  opacity: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, transparent 0 45%, #3b2f2f 45% 55%, transparent 55% 65%, #3b2f2f 65% 75%, transparent 75%),
+    #fff6ea;
+  border: 2px solid #3b2f2f;
+  border-radius: 3px;
+  box-sizing: border-box;
+  transition: opacity 0.15s;
+}
+body.can-resize #pet:hover #resize-grip,
+body.resizing #resize-grip { opacity: 1; pointer-events: auto; }
+
+/* Hover-only buttons: a column in the hit area's top-right corner (empty sky next
+   to the ears when sitting), so they never cover the cup counter. */
+#buttons {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+#pet:hover #buttons { opacity: 1; pointer-events: auto; }
+#pet.dragging #buttons { opacity: 0; }
+
+#buttons button {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 2px solid #3b2f2f;
+  border-radius: 3px;
+  background: #fff6ea;
+  color: #3b2f2f;
+  font: bold 11px/10px 'Segoe UI', sans-serif;
+  cursor: pointer;
+}
+#buttons button:hover { background: #f4a6b8; }

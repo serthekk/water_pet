@@ -1,0 +1,51 @@
+# dependencies + build output
+node_modules/
+dist/
+out/
+release/
+
+# logs
+logs/
+*.log
+
+# user data (lives in %APPDATA%\water-cat-tracker, but never commit a stray copy)
+settings.json
+settings.backup.json
+settings.*.json
+cups.json
+alarms.json
+appdata-*.json
+
+# secrets
+.env
+.env.*
+*.pem
+*.pfx
+*.p12
+*.key
+
+# personal reference photo (and the preview that puts it next to the sprite)
+assets/reference/
+build/preview-gargorl-vs-photo.png
+# other generated preview sheets (node preview_catsprite.js)
+build/preview-*.png
+build/sprites-preview.png
+
+# downloads / installers
+*.crdownload
+*.zip
+*.exe
+*.msi
+*.blockmap
+
+# private project notes (stay on this PC)
+CLAUDE.md
+
+# old experiments
+_old/
+
+# editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'">
+  <title>Customize cat</title>
+  <link rel="stylesheet" href="customize.css">
+</head>
+<body>
+  <!-- Which cat am I editing? (each cat is saved on its own) -->
+  <section class="catbar">
+    <select id="cat-select" aria-label="Cat"></select>
+    <span id="active-badge" class="badge" hidden>on desktop</span>
+    <div class="catbar-buttons">
+      <button id="cat-new" type="button">New cat</button>
+      <button id="cat-dup" type="button">Duplicate</button>
+      <button id="cat-del" type="button">Delete</button>
+      <button id="cat-active" type="button">Set as active</button>
+    </div>
+    <button id="restore-starters" type="button" class="restore" hidden>↩ Restore Gargorl &amp; Fainu</button>
+  </section>
+
+  <!-- Header card for the selected cat: name, gender, description, live preview -->
+  <section class="card" id="header">
+    <canvas id="preview" width="150" height="95" aria-label="Live preview"></canvas>
+    <div class="who">
+      <span id="label-badge" class="badge label-badge" title="Shown in her right-click menu, the tray and her info card"></span>
+      <input id="catName" type="text" maxlength="40" aria-label="Name">
+      <label class="gender-row">Gender
+        <select id="catGender">
+          <option value="female">Female ♀</option>
+          <option value="male">Male ♂</option>
+          <option value="unspecified">Unspecified ⚧</option>
+        </select>
+      </label>
+      <textarea id="catDescriptor" maxlength="200" rows="3" aria-label="Description"></textarea>
+      <p class="hint"><span id="desc-count">0</span>/200</p>
+    </div>
+  </section>
+
+  <nav class="tabs" role="tablist">
+    <button id="tab-basic" class="tab active" type="button" role="tab" data-tab="basic">Basic</button>
+    <button id="tab-advanced" class="tab" type="button" role="tab" data-tab="advanced">Advanced</button>
+  </nav>
+
+  <main>
+    <!-- BASIC -->
+    <section id="panel-basic" class="panel">
+      <div class="lock-row">
+        <label><input id="catLookLocked" type="checkbox"> 🔒 Look locked</label>
+        <span id="lock-note" class="hint"></span>
+      </div>
+      <h2>Presets</h2>
+      <div id="presets" class="presets"></div>
+      <div class="row buttons">
+        <button id="randomize" type="button">🎲 Randomize</button>
+        <button id="reset" type="button">Reset to default</button>
+      </div>
+
+      <h2>Colours</h2>
+      <div id="swatches" class="swatches"></div>
+      <div class="row toggles">
+        <label><input id="tail" type="checkbox"> Tail</label>
+        <label><input id="whiskersEnabled" type="checkbox"> Whiskers</label>
+      </div>
+
+      <h2>Fur pattern</h2>
+      <select id="furPattern"></select>
+
+      <h2>Size</h2>
+      <div class="row sizes" role="radiogroup">
+        <label><input type="radio" name="size" value="6"> Small</label>
+        <label><input type="radio" name="size" value="8"> Medium</label>
+        <label><input type="radio" name="size" value="11"> Large</label>
+        <span id="size-note" class="hint"></span>
+      </div>
+
+      <h2>Sleeping spot</h2>
+      <div class="sleep-top">
+        <canvas id="spot-preview" width="150" height="135" aria-label="Sleeping spot preview"></canvas>
+        <div class="sleep-fields">
+          <label>Where she sleeps
+            <select id="sleepSpot">
+              <option value="random">Random (never the same twice)</option>
+              <option value="bed">Cat bed</option>
+              <option value="tree">Cat tree</option>
+              <option value="box">Cardboard box</option>
+              <option value="none">None (sleeps in place)</option>
+            </select>
+          </label>
+          <button id="preview-sleep" type="button">💤 Preview sleep (10 s)</button>
+          <span id="spot-msg" class="hint"></span>
+        </div>
+      </div>
+      <div id="spot-colors"></div>
+      <div class="sleep-toggles">
+        <label><input id="idleSleepEnabled" type="checkbox"> Sleep after <input id="idleSleepMinutes" type="number" min="1" max="120" step="1"> min with nobody playing</label>
+        <label><input id="quietSleepEnabled" type="checkbox"> Sleep during quiet hours</label>
+        <label><input id="systemIdleSleep" type="checkbox"> Also when the whole computer is idle</label>
+        <p class="hint">Sleep settings are the same for every cat; the spot and its colours are per cat.</p>
+      </div>
+    </section>
+
+    <!-- ADVANCED -->
+    <section id="panel-advanced" class="panel" hidden>
+      <h2>Edit one part</h2>
+      <select id="part"></select>
+      <div class="editor">
+        <div id="big-swatch" class="big-swatch"></div>
+        <div class="fields">
+          <label>Hex <input id="hex" type="text" maxlength="7" spellcheck="false"></label>
+          <div class="rgb">
+            <label>R <input id="r" type="number" min="0" max="255"></label>
+            <label>G <input id="g" type="number" min="0" max="255"></label>
+            <label>B <input id="b" type="number" min="0" max="255"></label>
+          </div>
+        </div>
+      </div>
+      <label class="slider">Hue <input id="h" type="range" min="0" max="360"></label>
+      <label class="slider">Saturation <input id="s" type="range" min="0" max="100"></label>
+      <label class="slider">Brightness <input id="v" type="range" min="0" max="100"></label>
+      <div class="row">
+        <button id="eyedropper" type="button">💧 Eyedropper</button>
+        <span id="eyedropper-msg" class="hint"></span>
+      </div>
+
+      <h2>My presets</h2>
+      <div class="row">
+        <input id="preset-name" type="text" maxlength="30" placeholder="Name for this look">
+        <button id="save-preset" type="button">Save</button>
+      </div>
+      <ul id="my-presets" class="my-presets"></ul>
+
+      <h2>Share</h2>
+      <div class="row buttons">
+        <button id="export" type="button">Export look…</button>
+        <button id="import" type="button">Import look…</button>
+      </div>
+      <p class="hint">A small .json file with her colours, pattern, tail and whiskers.</p>
+    </section>
+  </main>
+
+  <footer>
+    <span id="status" aria-live="polite"></span>
+    <button id="close" type="button">Close</button>
+  </footer>
+
+  <script src="catsprite.js"></script>
+  <script src="customize.js"></script>
+</body>
+</html>

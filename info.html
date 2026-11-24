@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+  <title>About</title>
+  <link rel="stylesheet" href="info.css">
+</head>
+<body>
+  <article id="card" class="card" tabindex="-1">
+    <button id="close" type="button" title="Close (Esc)">×</button>
+    <span id="badge" class="badge"></span>
+    <div class="top">
+      <canvas id="portrait" aria-label="Portrait"></canvas>
+      <h1><span id="name"></span> <span id="symbol" class="symbol"></span></h1>
+    </div>
+    <p id="description"></p>
+  </article>
+  <script src="catsprite.js"></script>
+  <script src="info.js"></script>
+</body>
+</html>

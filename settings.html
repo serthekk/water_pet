@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'">
+  <title>WaterCat Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <header>
+    <h1>WaterCat Settings</h1>
+  </header>
+
+  <form id="form" autocomplete="off">
+    <h2>Look</h2>
+    <div class="row look">
+      <canvas id="preview" width="120" height="76" aria-label="Cat preview"></canvas>
+      <div class="look-fields">
+        <strong id="look-name"></strong>
+        <button id="open-customize" type="button">🎨 Customize cat…</button>
+        <p class="hint">Name, colours, presets, pattern, tail, whiskers.</p>
+      </div>
+    </div>
+    <div class="row">
+      <label for="catSize">Size</label>
+      <div class="inline">
+        <input id="catSize" type="range" min="4" max="14" step="1">
+        <output id="catSize-out" for="catSize">100%</output>
+      </div>
+    </div>
+    <div class="row check">
+      <label><input id="mouseResize" type="checkbox"> Resize with the mouse</label>
+      <p class="hint">Hover over <span class="pr-them">her</span> and drag the corner handle (bottom-right), or scroll the mouse wheel over <span class="pr-them">her</span>.</p>
+    </div>
+
+    <h2>Alarms</h2>
+    <div id="alarms"></div>
+    <div class="row">
+      <button id="add-alarm" type="button">+ Add alarm</button>
+      <p class="hint">Every day at that time the cat shows your message and meows (again every few minutes, see Water) until you click <span class="pr-them">her</span>.</p>
+    </div>
+
+    <h2>Sound</h2>
+    <div class="row check">
+      <label><input id="soundEnabled" type="checkbox"> Sound on</label>
+      <p class="hint">Off = no meows, purrs or chirps at all (bubbles still show).</p>
+    </div>
+    <div class="row">
+      <label for="volume">Meow volume</label>
+      <div class="inline">
+        <input id="volume" type="range" min="0" max="100" step="5">
+        <output id="volume-out" for="volume">50%</output>
+      </div>
+    </div>
+
+    <div class="row">
+      <label for="meowStyle">Meow style</label>
+      <div class="inline">
+        <select id="meowStyle"></select>
+        <button id="test-meow" type="button" title="Play this meow">🔊</button>
+      </div>
+      <p class="hint">Add your own: drop audio files in the sounds folder. <button id="open-sounds" type="button" class="link">Open sounds folder</button></p>
+    </div>
+
+    <h2>Water</h2>
+    <div class="row">
+      <label for="goalCups">Daily goal</label>
+      <div class="inline"><input id="goalCups" type="number" min="1" max="100" step="1" required> <span>cups</span></div>
+    </div>
+
+    <div class="row">
+      <label for="reminderMinutes">Remind every</label>
+      <div class="inline"><input id="reminderMinutes" type="number" min="1" max="1440" step="1" required> <span>minutes</span></div>
+    </div>
+
+    <div class="row">
+      <label for="repeatMinutes">Until she drinks, meow again every</label>
+      <div class="inline"><input id="repeatMinutes" type="number" min="1" max="120" step="1" required> <span>minutes</span></div>
+      <p class="hint">The reminder bubble stays up until a cup is logged.</p>
+    </div>
+
+    <div class="row">
+      <label for="quietStart">Quiet hours</label>
+      <div class="inline"><input id="quietStart" type="time" required> <span>to</span> <input id="quietEnd" type="time" required></div>
+      <p class="hint">No reminders in this window. Set both the same to turn quiet hours off.</p>
+    </div>
+
+    <h2>When idle</h2>
+    <div class="row check">
+      <label><input id="idleSleepEnabled" type="checkbox"> Fall asleep on the sleeping spot after</label>
+      <div class="inline indent"><input id="idleSleepMinutes" type="number" min="1" max="120" step="1" required> <span>minutes with nobody playing with <span class="pr-them">her</span></span></div>
+      <p class="hint">Click the sleeping cat to wake <span class="pr-them">her</span> up (that click doesn't count a cup).</p>
+    </div>
+    <div class="row check">
+      <label><input id="idleAnimations" type="checkbox"> Stretch and scratch the post now and then</label>
+    </div>
+    <div class="row check">
+      <label><input id="chaseMouse" type="checkbox"> Chase the mouse</label>
+      <p class="hint"><span class="pr-they-cap">She</span> <span class="pr-walks">walks</span> after the cursor and <span class="pr-sits">sits</span> beside it. Also in the right-click menu.</p>
+    </div>
+
+    <h2>App</h2>
+    <div class="row check">
+      <label><input id="startWithWindows" type="checkbox"> Start with Windows</label>
+      <p id="login-hint" class="hint" hidden>Takes effect in the installed app (not in dev mode).</p>
+    </div>
+    <div class="row">
+      <button id="restart" type="button">⟳ Restart cat</button>
+      <p class="hint">If <span class="pr-they">she</span> ever <span class="pr-acts">acts</span> up. Also in the tray menu and on <span class="pr-their">her</span> right-click menu. Cups and settings are kept.</p>
+    </div>
+  </form>
+
+  <footer>
+    <span id="status" aria-live="polite"></span>
+    <button id="close" type="button">Close</button>
+  </footer>
+
+  <script src="catsprite.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

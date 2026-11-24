@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'">
+  <title>WaterCat</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="bubble" aria-live="polite"><span id="bubble-text"></span></div>
+  <div id="count"><span id="bowl"></span><span id="count-text">0 / 8 cups</span></div>
+  <!-- 30x19 sprite cells, cat-size px each. Drawn by renderer.js from catsprite.js. Never smoothed. -->
+  <canvas id="sprite"></canvas>
+  <div id="zzz" aria-hidden="true"><span>z</span><span>z</span><span>Z</span></div>
+  <div id="hearts" aria-hidden="true"></div>
+  <!-- Hit area: sized to the drawn cat by renderer.js -->
+  <div id="pet">
+    <div id="buttons">
+      <button id="reset-btn" type="button" title="Reset today's cups (Undo brings them back)">↺</button>
+      <button id="hide-btn" type="button" title="Hide cat">–</button>
+      <button id="restart-btn" type="button" title="Restart the cat (if she's acting up)">⟳</button>
+      <button id="quit-btn" type="button" title="Quit">×</button>
+    </div>
+    <div id="resize-grip" title="Drag to resize (or scroll over her)"></div>
+  </div>
+  <script src="catsprite.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

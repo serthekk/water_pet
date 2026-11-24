@@ -1,0 +1,51 @@
+[
+  {
+    "id": "original",
+    "label": "Original meow",
+    "file": "original.wav",
+    "seconds": 1.85,
+    "source": "builtin"
+  },
+  {
+    "id": "deep-purr",
+    "label": "Deep Purr",
+    "file": "deep-purr.wav",
+    "seconds": 4.05,
+    "source": "sounds/Deep Purr.mp3"
+  },
+  {
+    "id": "mew",
+    "label": "Mew",
+    "file": "mew.wav",
+    "seconds": 0.78,
+    "source": "sounds/Mew.mp3"
+  },
+  {
+    "id": "nyah-nyah",
+    "label": "Nyah Nyah ⸜(｡˃ ᵕ ˂ )⸝♡",
+    "file": "nyah-nyah.wav",
+    "seconds": 4.05,
+    "source": "sounds/Nyah Nyah ⸜(｡˃ ᵕ ˂ )⸝♡ .mp3"
+  },
+  {
+    "id": "purrina",
+    "label": "Purrina",
+    "file": "purrina.wav",
+    "seconds": 4.05,
+    "source": "sounds/Purrina.mp3"
+  },
+  {
+    "id": "rrreow",
+    "label": "Rrreow",
+    "file": "rrreow.wav",
+    "seconds": 4.05,
+    "source": "sounds/Rrreow.mp3"
+  },
+  {
+    "id": "singing-cat",
+    "label": "Singing cat",
+    "file": "singing-cat.wav",
+    "seconds": 1.79,
+    "source": "sounds/Singing cat.mp3"
+  }
+]
