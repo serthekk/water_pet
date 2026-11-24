@@ -22,10 +22,10 @@
     const list = $('list');
     list.replaceChildren();
     for (const r of d.releases) {
-      const box = el('section', `release${r.version === d.current ? ' current' : ''}${r.upcoming ? ' upcoming' : ''}`);
+      const box = el('section', `release${r.current ? ' current' : ''}${r.upcoming ? ' upcoming' : ''}`);
       const h = el('h2');
       h.append(el('span', 'ver', `v${r.version}`), document.createTextNode(r.title || ''));
-      if (r.version === d.current) h.append(el('span', 'tag', '· you have this'));
+      if (r.current) h.append(el('span', 'tag', '· you have this'));
       else if (r.upcoming) h.append(el('span', 'tag', '· coming next'));
       if (r.date) h.append(el('span', 'date', niceDate(r.date)));
       const ul = el('ul');
@@ -58,6 +58,6 @@
 
   api.get().then((d) => {
     fill(d);
-    api.report('ready', { current: d.current, releases: d.releases.map((r) => r.version) });
+    api.report('ready', { current: d.current, releases: d.releases.map((r) => r.version), marked: d.releases.filter((r) => r.current).map((r) => r.version) });
   });
 })();

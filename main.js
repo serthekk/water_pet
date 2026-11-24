@@ -2156,7 +2156,8 @@ function releaseNotes() {
     .filter((r) => r && typeof r.version === 'string' && Array.isArray(r.items))
     // a version newer than this app: only shown in dev (notes being written for the next release)
     .filter((r) => compareVersions(r.version, current) <= 0 || !app.isPackaged)
-    .map((r) => ({ ...r, upcoming: compareVersions(r.version, current) > 0 }));
+    // "current": this app's notes (a beta 0.2.0-beta.1 has the 0.2.0 notes)
+    .map((r) => ({ ...r, upcoming: compareVersions(r.version, current) > 0, current: compareVersions(r.version, current) === 0 }));
 }
 function openNotes(source) {
   if (notesWin && !notesWin.isDestroyed()) {
@@ -3533,7 +3534,7 @@ async function runSelftest() {
       const nr = await waitFor((r) => r.type === 'notes:ready', 6000);
       await sleep(150);
       const notesInfo = notesWin ? await notesWin.webContents.executeJavaScript(`({ sections: document.querySelectorAll('.release').length, current: !!document.querySelector('.release.current'), sub: document.getElementById('current').textContent })`) : null;
-      record("What's new window: notes per version, this version marked", !!nr && nr.data.current === app.getVersion() && nr.data.releases.includes(app.getVersion())
+      record("What's new window: notes per version, this version marked", !!nr && nr.data.current === app.getVersion() && nr.data.marked.length === 1 && compareVersions(nr.data.marked[0], app.getVersion()) === 0
         && !!notesInfo && notesInfo.current && notesInfo.sections >= 2, JSON.stringify(notesInfo));
       if (notesWin) notesWin.close();
       await sleep(300);
