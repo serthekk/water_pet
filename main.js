@@ -134,7 +134,8 @@ const DEFAULT_SETTINGS = {
   lastRunVersion: '', // the app version that ran last (an update shows one 'I got an update!' bubble)
   idleAnimations: true,
   chaseMouse: false,
-  theme: 'cream', // colours of the right-click menu + every window (themes.js)
+  theme: 'cream', // colours of the right-click menu + every window (themes.js); 'custom' = customTheme
+  customTheme: { bg: '#fff6ea', card: '#ffffff', ink: '#3b2f2f', accent: '#b4621c', hover: '#f4a6b8', check: '#e8913a' }, // her own 6 colours
   position: null,
 };
 
@@ -518,6 +519,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
   if (Number.isInteger(raw.layoutRows)) s.layoutRows = raw.layoutRows;
   if (['stable', 'beta'].includes(raw.updateChannel)) s.updateChannel = raw.updateChannel;
   if (Themes.IDS.includes(raw.theme)) s.theme = raw.theme;
+  if (raw.customTheme && typeof raw.customTheme === 'object' && !Array.isArray(raw.customTheme)) s.customTheme = Themes.cleanCustom(raw.customTheme);
   if (typeof raw.lastRunVersion === 'string' && /^(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)?$/.test(raw.lastRunVersion)) s.lastRunVersion = raw.lastRunVersion;
   if (typeof raw.lastUpdateCheck === 'string' && raw.lastUpdateCheck.length <= 40) s.lastUpdateCheck = raw.lastUpdateCheck;
   if (typeof raw.skippedVersion === 'string' && /^(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)?$/.test(raw.skippedVersion)) s.skippedVersion = raw.skippedVersion;
@@ -1024,7 +1026,7 @@ function saveSettings() {
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
   'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
-  'autoUpdate', 'updateChannel', 'theme'];
+  'autoUpdate', 'updateChannel', 'theme', 'customTheme'];
 
 // For the Settings toolbar (Sleep / Wake, Hide / Show).
 function catState() {
@@ -1037,7 +1039,8 @@ function publicSettings() {
     cats: settings.cats.map((c) => ({ id: c.id, name: c.name, gender: c.gender })),
     activeCatId: settings.activeCatId,
     missingStarters: missingStarters(),
-    themes: Themes.list(),
+    themes: Themes.list(settings.customTheme),
+    customThemeLabels: Themes.CUSTOM_LABELS,
     catState: catState(),
     packaged: app.isPackaged, meowStyles: publicCatalog(), soundsFolder: userSoundsDir(), breeds: CatSprites.presetList(), defaultDescriptor: DEFAULT_SETTINGS.catDescriptor };
   for (const k of EDITABLE) out[k] = settings[k];
@@ -1120,12 +1123,12 @@ function applySettings(partial) {
     log(`renamed to ${settings.catName}; descriptor stays "${settings.catDescriptor}" until edited`);
   }
   if (changed.includes('alarms')) alarmsEdited(prev.alarms);
-  if (changed.includes('theme')) broadcastTheme();
+  if (changed.includes('theme') || (changed.includes('customTheme') && settings.theme === 'custom')) broadcastTheme();
   if (changed.includes('chaseMouse')) {
     setChase(settings.chaseMouse);
     updateTrayMenu();
   }
-  if (settingsWin && !settingsWin.isDestroyed() && (changed.includes('chaseMouse') || changed.includes('meowStyle') || changed.includes('catSize') || changed.includes('theme')
+  if (settingsWin && !settingsWin.isDestroyed() && (changed.includes('chaseMouse') || changed.includes('meowStyle') || changed.includes('catSize') || changed.includes('theme') || changed.includes('customTheme')
     || ['breed', 'tail', 'whiskersEnabled', 'catName', 'catDescriptor', ...LOOK_KEYS].some((k) => changed.includes(k)))) {
     settingsWin.webContents.send('settings:changed', publicSettings()); // changes made elsewhere show up in Settings
   }
@@ -2074,7 +2077,7 @@ function bringToFront(w, reason) {
 
 // Colour theme (themes.js): every window's preload sets the CSS variables it gets here.
 function sendTheme(w) {
-  if (w && !w.isDestroyed()) w.webContents.send('theme', Themes.payload(settings.theme));
+  if (w && !w.isDestroyed()) w.webContents.send('theme', Themes.payload(settings.theme, settings.customTheme));
 }
 function themeOnLoad(w) {
   w.webContents.on('dom-ready', () => sendTheme(w));
@@ -3361,6 +3364,21 @@ async function runSelftest() {
       const themed = await swc.executeJavaScript(`({ bg: getComputedStyle(document.body).backgroundColor, active: document.querySelector('#themes .theme.active').dataset.theme })`);
       record('Settings: picking a colour theme saves it and recolours the window', settings.theme === 'harvest' && readJsonSafe(settingsFile(), {}).theme === 'harvest'
         && themed.bg === 'rgb(251, 238, 221)' && themed.active === 'harvest', JSON.stringify(themed));
+      // every chip shows its colours as dots
+      const dots = await swc.executeJavaScript(`[...document.querySelectorAll('#themes .theme')].map((b) => b.querySelectorAll('.dots i').length)`);
+      record('Settings: every theme chip shows its 6 colours as dots', dots.length === Themes.IDS.length && dots.every((n) => n === 6), JSON.stringify(dots));
+      // "My colours": pick it, change the background in its editor -> saved + window recoloured
+      clearReports();
+      await swc.executeJavaScript(`document.querySelector('#themes .theme[data-theme="custom"]').click()`);
+      await waitFor((r) => r.type === 'settings:saved' && r.data.partial.theme === 'custom', 3000);
+      await sleep(150);
+      clearReports();
+      await swc.executeJavaScript(`(() => { const i = document.querySelector('#custom-theme input[data-key="bg"]'); i.value = '#d0f0e0'; i.dispatchEvent(new Event('input')); })()`);
+      await waitFor((r) => r.type === 'settings:saved' && r.data.partial.customTheme, 3000);
+      await sleep(200);
+      const mine = await swc.executeJavaScript(`({ shown: !document.getElementById('custom-theme').hidden, bg: getComputedStyle(document.body).backgroundColor })`);
+      record('Settings: "My colours" editor saves her own colours and applies them', settings.theme === 'custom' && settings.customTheme.bg === '#d0f0e0'
+        && mine.shown && mine.bg === 'rgb(208, 240, 224)' && readJsonSafe(settingsFile(), {}).customTheme.bg === '#d0f0e0', JSON.stringify(mine));
       applySettings({ theme: 'cream' });
       // toolbar: What's new -> the notes window (friendly notes from release-notes.json)
       clearReports();

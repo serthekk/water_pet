@@ -145,7 +145,15 @@ h2 {
   font-weight: 600;
   text-align: center;
 }
-.theme .sw { display: block; width: 100%; height: 26px; border-radius: 5px; border: 1.5px solid rgba(0, 0, 0, 0.15); }
+.theme .name { line-height: 1.15; min-height: 26px; display: flex; align-items: center; justify-content: center; }
+.theme .dots { display: flex; justify-content: center; gap: 2px; }
+.theme .dots i { width: 11px; height: 11px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, 0.25); }
+.theme.custom { border-style: dashed; }
+.custom-theme { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; padding: 8px; border: 2px dashed var(--line); border-radius: 8px; }
+.custom-theme label { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; font-weight: 600; }
+.custom-theme input[type='color'] { width: 38px; height: 24px; padding: 0; border: 2px solid var(--ink); border-radius: 5px; background: var(--card); cursor: pointer; }
+.custom-theme .from { grid-column: 1 / -1; display: flex; }
+.theme .sw { display: block; width: 100%; height: 18px; border-radius: 5px; border: 1.5px solid rgba(0, 0, 0, 0.15); }
 .theme.active { border-color: var(--accent); background: var(--soft); box-shadow: 0 0 0 2px var(--accent) inset; }
 
 /* inputs */

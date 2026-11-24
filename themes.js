@@ -78,12 +78,51 @@
       },
     },
   };
-  const IDS = Object.keys(THEMES);
   const DEFAULT = 'cream';
-  const get = (id) => THEMES[id] || THEMES[DEFAULT];
-  // What main sends to a window's preload ('theme'): it sets --bg, --card, ... on <html>.
-  const payload = (id) => ({ id: THEMES[id] ? id : DEFAULT, vars: get(id).vars, dark: !!get(id).dark });
-  const list = () => IDS.map((id) => ({ id, label: THEMES[id].label, vars: THEMES[id].vars, dark: !!THEMES[id].dark }));
 
-  module.exports = { THEMES, IDS, DEFAULT, get, payload, list };
+  // "My colours": she picks 6 colours, the rest is mixed from them.
+  const CUSTOM_KEYS = ['bg', 'card', 'ink', 'accent', 'hover', 'check'];
+  const CUSTOM_LABELS = { bg: 'Background', card: 'Panels', ink: 'Text', accent: 'Titles & links', hover: 'Highlight', check: 'Ticks & sliders' };
+  const HEX = /^#[0-9a-f]{6}$/;
+  const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const hex = (c) => '#' + c.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, '0')).join('');
+  const mix = (a, b, t) => hex(rgb(a).map((v, i) => v + (rgb(b)[i] - v) * t)); // t = share of b
+  const luminance = (h) => { const [r, g, b] = rgb(h); return (0.299 * r + 0.587 * g + 0.114 * b) / 255; };
+  // Valid custom colours (bad / missing ones fall back to Cream & Peach).
+  function cleanCustom(c) {
+    const out = {};
+    for (const k of CUSTOM_KEYS) {
+      const v = c && typeof c[k] === 'string' ? c[k].toLowerCase() : '';
+      out[k] = HEX.test(v) ? v : THEMES[DEFAULT].vars[k];
+    }
+    return out;
+  }
+  function customTheme(c) {
+    const v = cleanCustom(c);
+    return {
+      label: 'My colours',
+      dark: luminance(v.bg) < 0.4,
+      vars: {
+        ...v,
+        muted: mix(v.ink, v.bg, 0.35),
+        line: mix(v.bg, v.ink, 0.15),
+        soft: mix(v.bg, v.hover, 0.35),
+        grad: `linear-gradient(90deg, ${v.check}, ${v.hover}, ${v.accent})`,
+      },
+    };
+  }
+
+  const IDS = [...Object.keys(THEMES), 'custom'];
+  const get = (id, custom) => (id === 'custom' ? customTheme(custom) : THEMES[id] || THEMES[DEFAULT]);
+  // What main sends to a window's preload ('theme'): it sets --bg, --card, ... on <html>.
+  const payload = (id, custom) => {
+    const t = get(id, custom);
+    return { id: IDS.includes(id) ? id : DEFAULT, vars: t.vars, dark: !!t.dark };
+  };
+  const list = (custom) => IDS.map((id) => {
+    const t = get(id, custom);
+    return { id, label: t.label, vars: t.vars, dark: !!t.dark };
+  });
+
+  module.exports = { THEMES, IDS, DEFAULT, CUSTOM_KEYS, CUSTOM_LABELS, cleanCustom, get, payload, list };
 })();

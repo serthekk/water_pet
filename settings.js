@@ -183,28 +183,88 @@
   }
 
   // --- Colour themes ------------------------------------------------------------
+  // Each chip: its colour stripe, its name and a dot for every colour it uses.
   const themesBox = $('themes');
-  function fillThemes(list, selected) {
-    if (!themesBox.children.length) {
-      for (const t of list) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'theme';
-        b.dataset.theme = t.id;
-        b.setAttribute('role', 'radio');
-        const sw = document.createElement('span');
-        sw.className = 'sw';
-        sw.style.background = `${t.vars.grad.replace(/^linear-gradient\(90deg/, 'linear-gradient(135deg')}`;
-        b.append(sw, document.createTextNode(t.label));
-        b.addEventListener('click', () => save({ theme: t.id }));
-        themesBox.appendChild(b);
+  const DOT_KEYS = ['bg', 'card', 'ink', 'accent', 'hover', 'check'];
+  let lastThemes = [];
+  function fillThemes(list, selected, labels) {
+    lastThemes = list;
+    themesBox.replaceChildren(...list.map((t) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `theme${t.id === 'custom' ? ' custom' : ''}${t.id === selected ? ' active' : ''}`;
+      b.dataset.theme = t.id;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(t.id === selected));
+      const sw = document.createElement('span');
+      sw.className = 'sw';
+      sw.style.background = t.vars.grad.replace(/^linear-gradient\(90deg/, 'linear-gradient(135deg');
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = t.id === 'custom' ? '🎨 My colours' : t.label;
+      const dots = document.createElement('span');
+      dots.className = 'dots';
+      for (const k of DOT_KEYS) {
+        const d = document.createElement('i');
+        d.style.background = t.vars[k];
+        d.title = labels && labels[k] ? `${labels[k]}: ${t.vars[k]}` : t.vars[k];
+        dots.appendChild(d);
       }
+      b.append(sw, name, dots);
+      b.addEventListener('click', () => save({ theme: t.id }));
+      return b;
+    }));
+    fillCustomEditor(list.find((t) => t.id === 'custom'), selected === 'custom', labels);
+  }
+
+  // "My colours" editor (shown while that theme is picked)
+  const customBox = $('custom-theme');
+  let customTimer = null;
+  function fillCustomEditor(t, shown, labels) {
+    customBox.hidden = !shown;
+    if (!t) return;
+    if (!customBox.children.length) {
+      for (const k of DOT_KEYS) {
+        const lab = document.createElement('label');
+        lab.textContent = labels[k] || k;
+        const inp = document.createElement('input');
+        inp.type = 'color';
+        inp.dataset.key = k;
+        inp.addEventListener('input', () => {
+          clearTimeout(customTimer);
+          customTimer = setTimeout(saveCustom, 150);
+        });
+        lab.appendChild(inp);
+        customBox.appendChild(lab);
+      }
+      // copy another theme's colours as a starting point
+      const from = document.createElement('select');
+      from.id = 'custom-from';
+      from.dataset.tip = "Copy another theme's colours, then change what you like";
+      from.addEventListener('change', () => {
+        const src = lastThemes.find((x) => x.id === from.value);
+        from.value = '';
+        if (!src) return;
+        const c = {};
+        for (const k of DOT_KEYS) c[k] = src.vars[k];
+        save({ customTheme: c });
+      });
+      const row = document.createElement('div');
+      row.className = 'from';
+      row.append(from);
+      customBox.appendChild(row);
     }
-    themesBox.querySelectorAll('.theme').forEach((b) => {
-      const on = b.dataset.theme === selected;
-      b.classList.toggle('active', on);
-      b.setAttribute('aria-checked', String(on));
+    const from = $('custom-from');
+    from.replaceChildren(new Option('Start from a theme…', ''), ...lastThemes.filter((x) => x.id !== 'custom').map((x) => new Option(x.label, x.id)));
+    from.value = '';
+    customBox.querySelectorAll('input[type=color]').forEach((inp) => {
+      if (document.activeElement !== inp) inp.value = t.vars[inp.dataset.key];
     });
+  }
+  function saveCustom() {
+    const c = {};
+    customBox.querySelectorAll('input[type=color]').forEach((inp) => { c[inp.dataset.key] = inp.value.toLowerCase(); });
+    save({ customTheme: c });
   }
 
   // Hints about the cat use the desktop cat's pronouns (she/her, he/him, they/them).
@@ -231,7 +291,7 @@
     $('soundEnabled').checked = s.soundEnabled;
     $('mouseResize').checked = s.mouseResize;
     fillAlarms(s.alarms);
-    if (s.themes) fillThemes(s.themes, s.theme);
+    if (s.themes) fillThemes(s.themes, s.theme, s.customThemeLabels);
     if (s.catState) fillToolbar(s.catState);
     lastS = s;
     $('idleSleepEnabled').checked = s.idleSleepEnabled;
@@ -261,7 +321,7 @@
       // (alarms: main trims spaces, so compare the trimmed text it would store)
       const same = (k) => (k === 'alarms'
         ? JSON.stringify(s.alarms.map((a) => [a.id, a.time, a.text, a.enabled])) === JSON.stringify(partial.alarms.map((a) => [a.id, a.time, a.text.replace(/\s+/g, ' ').trim(), a.enabled]))
-        : s[k] === partial[k]);
+        : JSON.stringify(s[k]) === JSON.stringify(partial[k]));
       const rejected = Object.keys(partial).filter((k) => !same(k));
       if (rejected.length) fill(s); // put the stored value back in the form
       if (rejected.length) showStatus('Not saved: invalid value', true);
