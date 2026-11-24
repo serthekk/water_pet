@@ -23,8 +23,8 @@ jobs:
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1' # the syntax check doesn't need Electron itself
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: lts/*
           cache: npm
@@ -47,20 +47,21 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: lts/*
           cache: npm
       - run: npm ci
       - name: Make sure the Electron binary is there
-        run: node node_modules/electron/install.js
+        shell: pwsh
+        run: ./.github/scripts/ensure-electron.ps1
       - name: Self-test
         shell: pwsh
         run: ./.github/scripts/selftest.ps1
       - name: Upload self-test logs + screenshots
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: selftest-logs
           path: logs/
