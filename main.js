@@ -131,6 +131,7 @@ const DEFAULT_SETTINGS = {
   updateChannel: 'stable', // stable | beta (beta also offers pre-releases)
   lastUpdateCheck: '', // ISO time of the last check
   skippedVersion: '', // 'Skip this version'
+  lastRunVersion: '', // the app version that ran last (an update shows one 'I got an update!' bubble)
   idleAnimations: true,
   chaseMouse: false,
   position: null,
@@ -513,6 +514,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
   if (alarms) s.alarms = alarms;
   if (Number.isInteger(raw.layoutRows)) s.layoutRows = raw.layoutRows;
   if (['stable', 'beta'].includes(raw.updateChannel)) s.updateChannel = raw.updateChannel;
+  if (typeof raw.lastRunVersion === 'string' && /^(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)?$/.test(raw.lastRunVersion)) s.lastRunVersion = raw.lastRunVersion;
   if (typeof raw.lastUpdateCheck === 'string' && raw.lastUpdateCheck.length <= 40) s.lastUpdateCheck = raw.lastUpdateCheck;
   if (typeof raw.skippedVersion === 'string' && /^(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)?$/.test(raw.skippedVersion)) s.skippedVersion = raw.skippedVersion;
   const pos = raw.position;
@@ -2375,6 +2377,41 @@ async function manualUpdateCheck(source) {
   updateTrayMenu();
   sendUpdateStatus();
   return { text: bubble, status: updateStatus() };
+}
+
+// After an update: ONE quiet bubble "I got an update! 🐾 Now vX" (same rules as the
+// "update ready" bubble; tries again later if she's busy, gives up after ~2 h).
+// existingUser: settings were there before (an install that ran before lastRunVersion existed).
+function updatedFrom(last, now, existingUser) {
+  if (!last) return existingUser ? 'an older version' : null;
+  return require('./updater.js').compareVersions(now, last) > 0 ? last : null;
+}
+function scheduleUpdatedBubble(existingUser) {
+  const now = app.getVersion();
+  const from = updatedFrom(settings.lastRunVersion, now, existingUser);
+  if (settings.lastRunVersion !== now) {
+    settings.lastRunVersion = now;
+    saveSettings();
+  }
+  if (!from || SELFTEST) return;
+  log(`UPDATED: ${from} -> v${now} (cats, settings and position kept)`);
+  let tries = 0;
+  const attempt = async () => {
+    try {
+      const block = await updaterDeps().announceBlock();
+      if (!block) {
+        win.webContents.send('bubble-intro', { text: `I got an update! 🐾 Now v${now}`, kind: 'update' });
+        log(`"I got an update" bubble shown (v${now})`);
+        return;
+      }
+      tries += 1;
+      if (tries >= 12) return log(`"I got an update" bubble skipped (${block})`);
+      setTimeout(attempt, 10 * 60000);
+    } catch (err) {
+      log('updated bubble failed', err);
+    }
+  };
+  setTimeout(attempt, 8000);
 }
 
 // --- Hotkey / login item -----------------------------------------------------
@@ -4669,6 +4706,9 @@ async function runSelftest() {
       record('tray menu: Version + Check for updates; Restart to update only when ready', tl[0] === 'Restart to update (v0.1.1)' && tl.includes(ver)
         && tl0.includes(ver) && tl0.includes('Check for updates') && !tl0.some((l) => /^Restart to update/.test(l)), tl.join(' | '));
 
+      record('after an update: one "I got an update" bubble (not on a fresh install, never for a downgrade)', updatedFrom('0.1.0', '0.1.1', true) === '0.1.0'
+        && updatedFrom('', '0.1.1', true) === 'an older version' && updatedFrom('', '0.1.1', false) === null && updatedFrom('0.1.1', '0.1.1', true) === null
+        && updatedFrom('0.2.0', '0.1.1', true) === null);
       // where the updater starts: once, inside app.whenReady, and main.js never loads electron-updater
       const mainSrc = srcs[0];
       const inits = [...mainSrc.matchAll(/^\s*initUpdater\(\);/gm)];
@@ -4767,6 +4807,7 @@ app.whenReady().then(() => {
     refreshSounds('startup'); // before loadSettings so meowStyle can be validated
     watchSounds();
     loadSettings();
+    const existingUser = settings.firstRunDone === true; // before the first-run intro sets it
     if (process.argv.includes('--restore-starters')) {
       // one-off repair: bring back deleted Gargorl / Fainu and put Gargorl on the desktop
       const restored = restoreStarters('command line');
@@ -4783,6 +4824,7 @@ app.whenReady().then(() => {
     startTimers();
     startBehavior();
     initUpdater(); // only here, inside whenReady
+    scheduleUpdatedBubble(existingUser);
     if (SELFTEST) runSelftest();
     else applyLoginItem();
     screen.on('display-removed', reclamp);
