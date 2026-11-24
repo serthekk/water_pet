@@ -81,8 +81,8 @@ jobs:
           gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
           if ($LASTEXITCODE -eq 0) { Write-Host "::error::A release for $tag already exists. Delete it first (see RELEASING.md) or release a higher version."; exit 1 }
           # a beta (1.2.0-beta.1) is a GitHub pre-release: stable apps only look at "latest"
-          $pre = if ($tag -match '-') { @('--prerelease') } else { @('--latest') }
-          gh release create $tag @files --repo $env:GITHUB_REPOSITORY --title $tag --generate-notes --verify-tag @pre
+          $kind = if ($tag -match '-') { '--prerelease' } else { '--latest' }
+          gh release create $tag $files[0] $files[1] $files[2] $files[3] --repo $env:GITHUB_REPOSITORY --title $tag --generate-notes --verify-tag $kind
           if ($LASTEXITCODE) { exit 1 }
 
       - name: Verify the published release
