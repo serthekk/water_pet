@@ -2354,7 +2354,7 @@ function versionMenuItems(source) {
 }
 function updateStatus() {
   const base = { current: app.getVersion(), mode: SELFTEST ? 'selftest' : 'off', state: 'off', version: null, progress: 0, lastResult: '', releaseUrl: 'https://github.com/serthekk/water_pet/releases' };
-  return { ...base, ...(updater ? updater.status() : {}), autoUpdate: settings.autoUpdate, updateChannel: settings.updateChannel, lastUpdateCheck: settings.lastUpdateCheck };
+  return { ...base, ...(updater ? updater.status() : {}), current: app.getVersion(), autoUpdate: settings.autoUpdate, updateChannel: settings.updateChannel, lastUpdateCheck: settings.lastUpdateCheck };
 }
 function sendUpdateStatus() {
   if (customizeWin && !customizeWin.isDestroyed()) customizeWin.webContents.send('customize:update-status', updateStatus());
@@ -4755,14 +4755,17 @@ async function runSelftest() {
       record('test feed: same version -> "You\'re up to date"', r1.mode === 'dev-forced' && !r1.threw && r1.st.state === 'up-to-date' && r1.text === "You're up to date", JSON.stringify({ t: r1.text, s: r1.st.state }));
       const r2 = await run('fail');
       record('test feed: server error -> "Couldn\'t check right now", no throw', !r2.threw && r2.st.state === 'error' && r2.text === "Couldn't check right now", r2.st.error);
-      const r3 = await run('ok', '0.1.1', { offline: true });
+      const bump = (v, k) => { const [a, b, c] = v.split('-')[0].split('.').map(Number); return `${a}.${b}.${c + k}`; };
+      const next1 = bump(app.getVersion(), 1);
+      const next2 = bump(app.getVersion(), 2);
+      const r3 = await run('ok', next1, { offline: true });
       record('test feed: offline -> "Couldn\'t check right now", no throw', !r3.threw && r3.st.state === 'error', r3.st.error);
-      const r4 = await run('badsha', '0.1.2');
+      const r4 = await run('badsha', next2);
       record('test feed: a download that fails its checksum is rejected (never installs)', !r4.threw && r4.st.state === 'error' && /sha512|checksum/i.test(r4.st.error || '')
-        && r4.requests.includes('/WaterCat-Setup-0.1.2.exe'), r4.st.error);
-      const r5 = await run('ok', '0.1.1');
-      record('test feed: v0.1.1 found -> downloading -> downloaded (real electron-updater)', !r5.threw && r5.st.state === 'downloaded' && r5.st.version === '0.1.1'
-        && r5.st.installsOnQuit === false && r5.seen.includes('downloading') && r5.requests.includes('/latest.yml') && r5.requests.includes('/WaterCat-Setup-0.1.1.exe'), `${r5.st.state} ${r5.seen.join('>')} ${r5.requests.join(',')}`);
+        && r4.requests.includes(`/WaterCat-Setup-${next2}.exe`), r4.st.error);
+      const r5 = await run('ok', next1);
+      record(`test feed: v${next1} found -> downloading -> downloaded (real electron-updater)`, !r5.threw && r5.st.state === 'downloaded' && r5.st.version === next1
+        && r5.st.installsOnQuit === false && r5.seen.includes('downloading') && r5.requests.includes('/latest.yml') && r5.requests.includes(`/WaterCat-Setup-${next1}.exe`), `${r5.st.state} ${r5.seen.join('>')} ${r5.requests.join(',')}`);
       record('test feed: "Restart to update" in dev test mode logs only (app keeps running)', r5.restarted === true && !quitting);
       fs.rmSync(cacheDir, { recursive: true, force: true });
       fs.rmSync(cfg, { force: true });
