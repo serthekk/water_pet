@@ -136,7 +136,7 @@ const DEFAULT_SETTINGS = {
   chaseMouse: false,
   theme: 'cream', // colours of the right-click menu + every window (themes.js); 'custom' = customTheme
   drink: 'bowl', // the icon next to the counter (drinks.js): bowl | water | kombucha | tea | coffee | boba
-  drinkWord: '', // her own counter word ('' = the drink's own: cups, kombucha cans, bobas)
+  drinkWord: '', // her own counter word ('' = the drink's own: cups, BOOCHES, bobas)
   customTheme: { bg: '#fff6ea', card: '#ffffff', ink: '#3b2f2f', accent: '#b4621c', hover: '#f4a6b8', check: '#e8913a' }, // her own 6 colours
   position: null,
 };
@@ -1207,7 +1207,7 @@ function isQuietNow() {
   return isQuietAt(n.getHours() * 60 + n.getMinutes(), settings.quietStart, settings.quietEnd);
 }
 
-// The counter word under the cat ('cups', 'kombucha cans', 'bobas' or her own).
+// The counter word under the cat ('cups', 'BOOCHES', 'bobas' or her own).
 const drinkWord = () => Drinks.wordFor(settings.drink, settings.drinkWord);
 
 function pushState(extra = {}) {
@@ -2092,7 +2092,7 @@ function themeOnLoad(w) {
   w.webContents.on('dom-ready', () => sendTheme(w));
 }
 function broadcastTheme() {
-  for (const w of [settingsWin, customizeWin, infoWin, notesWin, menuWin]) sendTheme(w);
+  for (const w of [settingsWin, customizeWin, infoWin, notesWin, menuWin, feedbackWin]) sendTheme(w);
 }
 
 function openSettings() {
@@ -2195,6 +2195,103 @@ function openNotes(source) {
   notesWin.loadFile(path.join(__dirname, 'notes.html'));
   log(`notes window opened (${source})`);
   return notesWin;
+}
+
+// --- Feedback window (problem report / idea) --------------------------------------
+// Send opens a pre-filled GitHub issue (public) in her browser. A problem report may
+// include the app version, Windows version and the last error lines of the log, with
+// her user folder / user name blanked out. She sees exactly that text before sending.
+let feedbackWin = null;
+let feedbackKind = 'bug';
+const ISSUE_URL = 'https://github.com/serthekk/water_pet/issues/new';
+function scrubPersonal(text) {
+  const os = require('os');
+  let t = String(text);
+  for (const p of [os.homedir(), app.getPath('appData'), app.getPath('temp')]) {
+    if (p) t = t.split(p).join('~').split(p.replace(/\\/g, '/')).join('~');
+  }
+  const user = (() => { try { return os.userInfo().username; } catch (_) { return ''; } })();
+  if (user && user.length >= 3) t = t.replace(new RegExp(user.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), 'user');
+  return t.replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, '(email)');
+}
+// The last error-ish lines of the log (not the selftest's), shortened + scrubbed.
+function recentErrors(max = 12) {
+  try {
+    const size = fs.statSync(LOG_FILE).size;
+    const fd = fs.openSync(LOG_FILE, 'r');
+    const len = Math.min(size, 256 * 1024);
+    const buf = Buffer.alloc(len);
+    fs.readSync(fd, buf, 0, len, size - len);
+    fs.closeSync(fd);
+    return buf.toString('utf8').split(/\r?\n/)
+      // (selftest lines only count inside the selftest: its own test errors are no news)
+      .filter((l) => /error|fail|exception|crash|renderer gone|uncaught/i.test(l) && !/SELFTEST (PASS|FAIL|SUMMARY)/.test(l) && (SELFTEST || !l.includes('[selftest]')))
+      .slice(-max)
+      .map((l) => scrubPersonal(l).slice(0, 220));
+  } catch (_) {
+    return [];
+  }
+}
+function feedbackInfo() {
+  const os = require('os');
+  return { kind: feedbackKind, version: app.getVersion(), os: `${os.release()} (${process.arch})`, errors: recentErrors() };
+}
+function issueUrl({ kind, title, text, details }) {
+  const isBug = kind !== 'idea';
+  const t = String(title || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+  const body = [
+    String(text || '').trim().slice(0, 2000) || '(no details)',
+    '',
+    `_${isBug ? 'Problem report' : 'Idea'} sent from WaterCat ${app.getVersion()}_`,
+  ];
+  if (isBug && details) {
+    const info = feedbackInfo();
+    body.push('', '<details><summary>Technical details</summary>', '', '```', `App version: ${info.version}`, `Windows: ${info.os}`, 'Recent errors:', ...(info.errors.length ? info.errors : ['(none)']), '```', '</details>');
+  }
+  const q = new URLSearchParams({ title: `${isBug ? '🐞' : '💡'} ${t}`, body: body.join('\n'), labels: isBug ? 'bug' : 'enhancement' });
+  let url = `${ISSUE_URL}?${q.toString()}`;
+  // browsers / GitHub cut very long links: drop the log lines first
+  if (url.length > 7500 && details) return issueUrl({ kind, title, text, details: false });
+  if (url.length > 7500) url = url.slice(0, 7500);
+  return url;
+}
+function openFeedback(kind, source) {
+  feedbackKind = kind === 'idea' ? 'idea' : 'bug';
+  if (feedbackWin && !feedbackWin.isDestroyed()) {
+    feedbackWin.webContents.send('feedback:kind', feedbackKind);
+    bringToFront(feedbackWin, 'opened again');
+    return feedbackWin;
+  }
+  feedbackWin = new BrowserWindow({
+    width: 420,
+    height: 600,
+    useContentSize: true,
+    show: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    title: 'Feedback',
+    icon: asset('tray.png'),
+    backgroundColor: '#fff6ea',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'feedback-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: true, // she is writing sentences here
+    },
+  });
+  feedbackWin.setMenu(null);
+  themeOnLoad(feedbackWin);
+  const wc = feedbackWin.webContents;
+  wc.on('will-navigate', (e) => e.preventDefault());
+  wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+  feedbackWin.once('ready-to-show', () => (SELFTEST ? feedbackWin.showInactive() : bringToFront(feedbackWin, 'opened')));
+  feedbackWin.on('closed', () => { feedbackWin = null; });
+  feedbackWin.loadFile(path.join(__dirname, 'feedback.html'));
+  log(`feedback window opened (${feedbackKind}, ${source})`);
+  return feedbackWin;
 }
 
 // --- Customize window (Stage 2) -------------------------------------------------
@@ -2666,7 +2763,12 @@ function versionMenuItems(source) {
   if (st.state === 'checking') check = { label: 'Checking for updates…', enabled: false };
   if (st.state === 'downloading') check = { label: `Downloading v${st.version}… ${st.progress || 0}%`, enabled: false };
   if (st.state === 'downloaded') check = { label: `Update ready (v${st.version})`, enabled: false };
-  return [{ label: `Version ${app.getVersion()}`, enabled: false }, { label: "What's new…", click: () => openNotes(source) }, check];
+  return [
+    { label: `Version ${app.getVersion()}`, enabled: false },
+    { label: "What's new…", click: () => openNotes(source) },
+    check,
+    { label: 'Report a problem / idea…', click: () => openFeedback('bug', source) },
+  ];
 }
 function updateStatus() {
   const base = { current: app.getVersion(), mode: SELFTEST ? 'selftest' : 'off', state: 'off', version: null, progress: 0, lastResult: '', releaseUrl: 'https://github.com/serthekk/water_pet/releases' };
@@ -2806,6 +2908,8 @@ function registerIpc() {
     switch (String(name)) {
       case 'customize': openCustomize(); return done('customize');
       case 'notes': openNotes('settings'); return done('notes');
+      case 'report-bug': openFeedback('bug', 'settings'); return done('feedback');
+      case 'suggest-idea': openFeedback('idea', 'settings'); return done('feedback');
       case 'test-reminder': fireReminder('test'); return done('test-reminder');
       case 'sleep':
         if (behavior.state === 'sleeping') { wakeUp('settings'); return done('wake'); }
@@ -2855,6 +2959,22 @@ function registerIpc() {
     openNotes('customize');
     return true;
   });
+  ipcMain.handle('feedback:get', () => feedbackInfo());
+  ipcMain.handle('feedback:send', async (e, msg) => {
+    if (!feedbackWin || feedbackWin.isDestroyed() || e.sender !== feedbackWin.webContents || !msg || typeof msg !== 'object') return { ok: false, error: 'Not allowed' };
+    if (!String(msg.title || '').trim()) return { ok: false, error: 'Please write a few words first' };
+    const url = issueUrl(msg);
+    if (!url.startsWith(`${ISSUE_URL}?`)) return { ok: false, error: 'Could not build the link' };
+    log(`feedback: opening a GitHub ${msg.kind === 'idea' ? 'idea' : 'problem report'} (${url.length} chars, details=${!!msg.details})`);
+    if (selftestHooks.onOpenExternal) { selftestHooks.onOpenExternal(url); return { ok: true, length: url.length }; }
+    try {
+      await shell.openExternal(url);
+      return { ok: true, length: url.length };
+    } catch (err) {
+      log('feedback: could not open the browser', err);
+      return { ok: false, error: 'Could not open your browser' };
+    }
+  });
   ipcMain.handle('notes:get', () => ({ current: app.getVersion(), releases: releaseNotes(), update: updateStatus() }));
   ipcMain.on('notes:github', () => {
     const st = updateStatus();
@@ -2897,7 +3017,7 @@ function registerIpc() {
   // bringToFront). Her click gives this process the right to take the foreground.
   ipcMain.on('window:claim-focus', (e) => {
     const w = BrowserWindow.fromWebContents(e.sender);
-    if (w && (w === settingsWin || w === customizeWin)) bringToFront(w, 'clicked while unfocused');
+    if (w && [settingsWin, customizeWin, notesWin, feedbackWin].includes(w)) bringToFront(w, 'clicked while unfocused');
   });
   ipcMain.on('report', (_e, type, data) => {
     log(`renderer: ${type}`, data === undefined ? '' : data);
@@ -2908,7 +3028,7 @@ function registerIpc() {
 }
 
 // --- Self test -----------------------------------------------------------------
-const selftestHooks = { onReport: null, onContextMenu: null, onRestart: null, dialogPath: null };
+const selftestHooks = { onReport: null, onContextMenu: null, onRestart: null, dialogPath: null, onOpenExternal: null };
 
 async function runSelftest() {
   const results = [];
@@ -3389,14 +3509,14 @@ async function runSelftest() {
       record('Settings: "My colours" editor saves her own colours and applies them', settings.theme === 'custom' && settings.customTheme.bg === '#d0f0e0'
         && mine.shown && mine.bg === 'rgb(208, 240, 224)' && readJsonSafe(settingsFile(), {}).customTheme.bg === '#d0f0e0', JSON.stringify(mine));
       applySettings({ theme: 'cream' });
-      // drink: kombucha -> pixel can next to the counter + "kombucha cans"; her own word wins
+      // drink: kombucha -> pixel can next to the counter + "BOOCHES"; her own word wins
       clearReports();
       await swc.executeJavaScript(`document.querySelector('#drinks .drink[data-drink="kombucha"]').click()`);
       await waitFor((r) => r.type === 'settings:saved' && r.data.partial.drink === 'kombucha', 3000);
       await sleep(250);
       const k = await win.webContents.executeJavaScript(`({ text: document.getElementById('count-text').textContent, can: !document.getElementById('drink').hidden && document.getElementById('drink').width > 0,
         bowl: !document.getElementById('bowl').hidden, smooth: document.getElementById('drink').getContext('2d').imageSmoothingEnabled })`);
-      record('drink: kombucha shows a pixel can + "kombucha cans" under the cat', k.text.endsWith(`/ ${settings.goalCups} kombucha cans`) && k.can && !k.bowl && !k.smooth && trayTipText.endsWith('kombucha cans'), JSON.stringify(k));
+      record('drink: kombucha shows a pixel can + "BOOCHES" under the cat', k.text.endsWith(`/ ${settings.goalCups} BOOCHES`) && k.can && !k.bowl && !k.smooth && trayTipText.endsWith('BOOCHES'), JSON.stringify(k));
       clearReports();
       await swc.executeJavaScript(`(() => { const w = document.getElementById('drinkWord'); w.value = 'yuzu cans'; w.dispatchEvent(new Event('input')); })()`);
       await waitFor((r) => r.type === 'settings:saved' && r.data.partial.drinkWord === 'yuzu cans', 3000);
@@ -3416,6 +3536,34 @@ async function runSelftest() {
       record("What's new window: notes per version, this version marked", !!nr && nr.data.current === app.getVersion() && nr.data.releases.includes(app.getVersion())
         && !!notesInfo && notesInfo.current && notesInfo.sections >= 2, JSON.stringify(notesInfo));
       if (notesWin) notesWin.close();
+      await sleep(300);
+      // Feedback: idea from the Settings card -> GitHub issue link (never opened in the selftest)
+      let opened = null;
+      selftestHooks.onOpenExternal = (u) => { opened = u; };
+      clearReports();
+      await swc.executeJavaScript(`document.querySelector('#feedback-card [data-action="suggest-idea"]').click()`);
+      const fr = await waitFor((r) => r.type === 'feedback:ready', 6000);
+      const fwc = feedbackWin ? feedbackWin.webContents : null;
+      if (fwc) {
+        await fwc.executeJavaScript(`(() => { document.getElementById('title').value = 'A pumpkin hat'; document.getElementById('text').value = 'For autumn please'; document.getElementById('send').click(); })()`);
+        await waitFor((r) => r.type === 'feedback:sent', 3000);
+      }
+      const q = opened ? new URL(opened).searchParams : null;
+      record('Feedback: "Suggest an idea" opens a pre-filled GitHub issue (idea, no log)', !!fr && fr.data.kind === 'idea' && !!q && opened.startsWith(ISSUE_URL)
+        && q.get('title') === '💡 A pumpkin hat' && q.get('labels') === 'enhancement' && q.get('body').startsWith('For autumn please') && !q.get('body').includes('Recent errors'), opened ? opened.slice(0, 160) : 'nothing opened');
+      // problem report with technical details: version + errors, never her user folder / name
+      opened = null;
+      log(`selftest-free error line for the report: Error: something broke in ${require('os').homedir()}\\secret.txt`);
+      if (fwc) {
+        await fwc.executeJavaScript(`(() => { document.getElementById('kind-bug').click(); document.getElementById('title').value = 'Cat froze'; document.getElementById('details').checked = true; document.getElementById('send').click(); })()`);
+        await sleep(400);
+      }
+      const bug = opened ? new URL(opened).searchParams.get('body') : '';
+      const home = require('os').homedir();
+      record('Feedback: problem report includes version + recent errors, with personal paths removed', !!opened && bug.includes(`App version: ${app.getVersion()}`)
+        && bug.includes('Recent errors:') && bug.includes('something broke in ~') && !bug.includes(home) && !bug.includes(require('os').userInfo().username), bug.slice(0, 300));
+      selftestHooks.onOpenExternal = null;
+      if (feedbackWin) feedbackWin.close();
       await sleep(300);
       // toolbar: sleep + wake
       await swc.executeJavaScript(`document.querySelector('#toolbar [data-action="sleep"]').click()`);

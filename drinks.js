@@ -28,7 +28,7 @@
     },
     kombucha: {
       label: 'Kombucha',
-      word: 'kombucha cans',
+      word: 'BOOCHES',
       colors: { K, S: '#c9ccd1', s: '#9da1a8', Y: '#f2c230', W: '#fbfbf7', D: '#2f2f33', O: '#e8a13a' },
       grid: [
         '.KKKKKK.',

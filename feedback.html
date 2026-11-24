@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+  <title>Feedback</title>
+  <link rel="stylesheet" href="feedback.css">
+</head>
+<body>
+  <header>
+    <h1>💌 Feedback</h1>
+    <div class="kinds" role="tablist">
+      <button id="kind-bug" type="button" class="kind" data-kind="bug" role="tab">🐞 Report a problem</button>
+      <button id="kind-idea" type="button" class="kind" data-kind="idea" role="tab">💡 Suggest an idea</button>
+    </div>
+  </header>
+
+  <main>
+    <label for="title" id="title-label">What went wrong?</label>
+    <input id="title" type="text" maxlength="100" autocomplete="off">
+    <label for="text" id="text-label">Tell us more</label>
+    <textarea id="text" maxlength="2000" rows="6"></textarea>
+    <p class="hint"><span id="count">0</span>/2000</p>
+
+    <label id="details-row" class="check"><input id="details" type="checkbox" checked> Include technical details (app version, Windows version, recent errors)</label>
+    <details id="preview-box">
+      <summary>See exactly what will be sent</summary>
+      <pre id="preview"></pre>
+    </details>
+
+    <p class="notice">Send opens a page on GitHub (you need a free GitHub account) with your message already filled in. GitHub issues are <strong>public</strong>, so please don't write anything private.</p>
+  </main>
+
+  <footer>
+    <span id="status" aria-live="polite"></span>
+    <button id="cancel" type="button">Cancel</button>
+    <button id="send" type="button" class="primary">Send ➜</button>
+  </footer>
+  <script src="feedback.js"></script>
+</body>
+</html>

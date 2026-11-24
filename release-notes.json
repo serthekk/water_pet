@@ -6,8 +6,9 @@
       "title": "Prettier and easier",
       "items": [
         { "icon": "🎀", "text": "Colour themes: Lavender Dream, Cherry Blossom, Sunflower Field, Matcha & Rose, Autumn Harvest, Cozy Maple, Plum & Olive, Autumn Twilight and more (Settings → Colours)." },
-        { "icon": "🧋", "text": "Pick your drink: water, kombucha, tea, coffee or boba, each with its own little picture and counter word (or type your own word)." },
+        { "icon": "🧋", "text": "Pick your drink: water, kombucha, tea, coffee or boba, each with its own little picture and counter word, like BOOCHES for kombucha. Or type your own word." },
         { "icon": "🎨", "text": "My colours: make your own colour theme." },
+        { "icon": "💌", "text": "Report a problem or suggest an idea, right from Settings or the right-click menu." },
         { "icon": "🐾", "text": "A brand-new right-click menu in your theme's colours. It closes when you click anywhere else." },
         { "icon": "⚙", "text": "A Settings button on the cat when you hover over her." },
         { "icon": "🧰", "text": "Settings got a tidy new look, a quick-action toolbar and little ? tips." },

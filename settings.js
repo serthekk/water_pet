@@ -164,6 +164,11 @@
     hide: 'Cat hidden - click the tray icon to bring her back',
     show: 'Cat is back 🐾',
   };
+  // the Feedback card's buttons work like toolbar actions (they open the Feedback window)
+  $('feedback-card').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-action]');
+    if (b) api.action(b.dataset.action);
+  });
   $('toolbar').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-action]');
     if (!b) return;
