@@ -2038,11 +2038,26 @@ function watchMouseDelivery(w) {
 // A normal (focusable) window: it only takes focus when she opens it on purpose.
 let settingsWin = null;
 
+// Settings / Customize are opened from the menu of the never-focused cat window (or the
+// tray), so Windows' foreground lock can refuse them the foreground: Electron then thinks
+// the window is focused, but the OS keyboard focus stays elsewhere. Backspace still works
+// in that state, typed LETTERS are lost (they go through the Windows text-input layer).
+// Bring the window really to the front, and give the page keyboard focus.
+function bringToFront(w, reason) {
+  if (!w || w.isDestroyed()) return;
+  if (w.isMinimized()) w.restore();
+  if (!w.isVisible()) w.show();
+  // briefly topmost: lets a background process put its window in front
+  w.setAlwaysOnTop(true);
+  w.focus();
+  w.setAlwaysOnTop(false);
+  w.webContents.focus();
+  log(`window to front: "${w.getTitle()}" (${reason})`);
+}
+
 function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) {
-    if (settingsWin.isMinimized()) settingsWin.restore();
-    settingsWin.show();
-    settingsWin.focus();
+    bringToFront(settingsWin, 'opened again');
     return settingsWin;
   }
   settingsWin = new BrowserWindow({
@@ -2072,7 +2087,7 @@ function openSettings() {
   wc.on('will-navigate', (e) => e.preventDefault());
   wc.setWindowOpenHandler(() => ({ action: 'deny' }));
   settingsWin.once('ready-to-show', () => {
-    if (!SELFTEST) settingsWin.show();
+    if (!SELFTEST) bringToFront(settingsWin, 'opened');
     else settingsWin.showInactive();
   });
   settingsWin.on('closed', () => { settingsWin = null; });
@@ -2088,9 +2103,7 @@ let customizeWin = null;
 
 function openCustomize() {
   if (customizeWin && !customizeWin.isDestroyed()) {
-    if (customizeWin.isMinimized()) customizeWin.restore();
-    customizeWin.show();
-    customizeWin.focus();
+    bringToFront(customizeWin, 'opened again');
     return customizeWin;
   }
   customizeWin = new BrowserWindow({
@@ -2119,7 +2132,7 @@ function openCustomize() {
   wc.on('render-process-gone', (_e, d) => log('CUSTOMIZE RENDERER GONE', d));
   wc.on('will-navigate', (e) => e.preventDefault());
   wc.setWindowOpenHandler(() => ({ action: 'deny' }));
-  customizeWin.once('ready-to-show', () => (SELFTEST ? customizeWin.showInactive() : customizeWin.show()));
+  customizeWin.once('ready-to-show', () => (SELFTEST ? customizeWin.showInactive() : bringToFront(customizeWin, 'opened')));
   customizeWin.on('closed', () => { customizeWin = null; });
   customizeWin.loadFile(path.join(__dirname, 'customize.html'));
   log('customize window opened');
@@ -2538,6 +2551,12 @@ function registerIpc() {
     const err = await shell.openPath(userSoundsDir());
     if (err) log(`open sounds folder failed: ${err}`);
     return !err;
+  });
+  // A click inside Settings / Customize while the page has no keyboard focus (see
+  // bringToFront). Her click gives this process the right to take the foreground.
+  ipcMain.on('window:claim-focus', (e) => {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    if (w && (w === settingsWin || w === customizeWin)) bringToFront(w, 'clicked while unfocused');
   });
   ipcMain.on('report', (_e, type, data) => {
     log(`renderer: ${type}`, data === undefined ? '' : data);

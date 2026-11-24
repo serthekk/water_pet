@@ -2,6 +2,10 @@
 // Preload for the Customize window ONLY. Channel names must match main.js.
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Clicked while Windows hasn't given this window the keyboard (typed letters would be
+// lost): ask main to bring it properly to the front.
+window.addEventListener('pointerdown', () => { if (!document.hasFocus()) ipcRenderer.send('window:claim-focus'); }, true);
+
 contextBridge.exposeInMainWorld('customizeApi', {
   // every call is for one cat (catId = the cat selected in this window)
   get: (catId) => ipcRenderer.invoke('customize:get', catId),

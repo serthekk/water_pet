@@ -2,6 +2,10 @@
 // Preload for the Settings window ONLY. Channel names must match main.js.
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Clicked while Windows hasn't given this window the keyboard (typed letters would be
+// lost): ask main to bring it properly to the front.
+window.addEventListener('pointerdown', () => { if (!document.hasFocus()) ipcRenderer.send('window:claim-focus'); }, true);
+
 contextBridge.exposeInMainWorld('settingsApi', {
   get: () => ipcRenderer.invoke('settings:get'),
   set: (partial) => ipcRenderer.invoke('settings:set', partial),
