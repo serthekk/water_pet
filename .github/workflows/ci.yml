@@ -61,7 +61,7 @@ jobs:
         run: ./.github/scripts/selftest.ps1
       - name: Upload self-test logs + screenshots
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: selftest-logs
           path: logs/
