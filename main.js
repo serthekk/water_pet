@@ -651,6 +651,19 @@ const activeCat = () => settings.cats.find((c) => c.id === settings.activeCatId)
 function loadSettings() {
   const file = settingsFile();
   const raw = readJsonSafe(file, {});
+  const fromVersion = Number.isInteger(raw.dataVersion) ? raw.dataVersion : 0;
+  if (fromVersion > DATA_VERSION) {
+    // Written by a NEWER app version (she went back to an older one): keep a copy so
+    // nothing this version doesn't understand is lost.
+    try {
+      fs.copyFileSync(file, path.join(dataDir(), `settings.v${fromVersion}.backup.json`));
+      log(`settings: data version ${fromVersion} is newer than ${DATA_VERSION} - kept a copy as settings.v${fromVersion}.backup.json`);
+    } catch (err) {
+      log('settings: could not back up the newer file', err);
+    }
+  } else if (fromVersion < DATA_VERSION && Object.keys(raw).length) {
+    log(`settings: data version ${fromVersion} -> ${DATA_VERSION} (migrating)`);
+  }
   if (Array.isArray(raw.cats)) {
     // Profile format
     const seen = new Set();
@@ -977,10 +990,16 @@ function maybeShowIntro() {
   return true;
 }
 
+// Format of settings.json. Bump it when a migration is added to loadSettings /
+// sanitizeProfile; every older file is migrated on startup (all data lives in userData,
+// never next to the exe, so app updates keep it).
+//   0 = before dataVersion existed (flat or profile format), 1 = profiles + sleep spots
+const DATA_VERSION = 1;
+
 // On disk: global settings + cats[] + activeCatId (the flat active-cat mirror is not saved).
 function saveSettings() {
   syncActive();
-  const out = { ...settings };
+  const out = { ...settings, dataVersion: DATA_VERSION };
   for (const k of PER_CAT_KEYS) delete out[k];
   writeJsonSafe(settingsFile(), out);
 }

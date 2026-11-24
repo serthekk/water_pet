@@ -1,21 +1,29 @@
 {
   "name": "water-cat-tracker",
   "productName": "WaterCat",
-  "version": "1.0.0",
-  "description": "Minimal desktop pet water tracker",
+  "version": "0.1.0",
+  "description": "A pixel cat on your Windows desktop that reminds you to drink water",
   "main": "main.js",
-  "author": "WaterCat",
+  "author": "serthekk",
   "license": "UNLICENSED",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/serthekk/water_pet.git"
+  },
   "scripts": {
     "start": "electron .",
     "selftest": "electron . --selftest",
     "sprite": "node render_sprite.js",
     "meows": "node make_meows.js",
-    "check": "node --check main.js && node --check preload.js && node --check renderer.js && node --check render_sprite.js",
-    "dist": "electron-builder --win"
+    "check": "node --check main.js && node --check preload.js && node --check renderer.js && node --check catsprite.js && node --check render_sprite.js",
+    "build": "electron-builder --win --publish never",
+    "release": "electron-builder --win --publish always",
+    "version:patch": "npm version patch -m \"Release v%s\"",
+    "version:minor": "npm version minor -m \"Release v%s\""
   },
   "build": {
-    "appId": "com.watercat.tracker",
+    "appId": "com.serthekk.waterpet",
     "productName": "WaterCat",
     "electronDist": "node_modules/electron/dist",
     "directories": {
@@ -46,34 +54,35 @@
       "assets/bowl.png",
       "assets/meows/*.wav",
       "assets/meows/meows.json",
-      "package.json"
+      "package.json",
+      "!assets/reference/**"
     ],
     "win": {
       "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
       ],
       "icon": "build/icon.png"
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "artifactName": "WaterCat-Setup-${version}.${ext}"
+      "allowToChangeInstallationDirectory": false,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "portable": {
-      "artifactName": "WaterCat-Portable-${version}.${ext}"
-    }
+      "artifactName": "${productName}-Portable-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "serthekk",
+        "repo": "water_pet",
+        "releaseType": "release"
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^34.5.8",
