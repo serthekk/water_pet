@@ -26,11 +26,22 @@
   window.addEventListener('unhandledrejection', (e) => api.report('error', { message: String(e.reason) }));
 
   // --- display -----------------------------------------------------------
+  // The drink icon next to the counter: the cat bowl image, or a pixel-art drink (2 px cells).
+  let shownDrink = null;
+  function showDrink(id) {
+    shownDrink = id;
+    const c = document.getElementById('drink');
+    const isGrid = window.Drinks.draw(c, id, 2);
+    c.hidden = !isGrid;
+    document.getElementById('bowl').hidden = isGrid;
+    api.report('drink', { id, grid: isGrid });
+  }
   function render(s) {
     if (typeof s.volume === 'number') volume = s.volume;
     if (typeof s.meowStyle === 'string') meowStyle = s.meowStyle;
     if (typeof s.sound === 'boolean') soundOn = s.sound;
-    countEl.textContent = `${s.cups} / ${s.goal} cups`;
+    countEl.textContent = `${s.cups} / ${s.goal} ${s.word || 'cups'}`;
+    if (s.drink && s.drink !== shownDrink) showDrink(s.drink);
     if (typeof s.mouseResize === 'boolean') document.body.classList.toggle('can-resize', s.mouseResize);
     if (Number.isInteger(s.size) && s.size !== CELL) {
       layout(s.size);

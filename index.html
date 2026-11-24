@@ -8,7 +8,7 @@
 </head>
 <body>
   <div id="bubble" aria-live="polite"><span id="bubble-text"></span></div>
-  <div id="count"><span id="bowl"></span><span id="count-text">0 / 8 cups</span></div>
+  <div id="count"><span id="bowl"></span><canvas id="drink" hidden></canvas><span id="count-text">0 / 8 cups</span></div>
   <!-- 30x19 sprite cells, cat-size px each. Drawn by renderer.js from catsprite.js. Never smoothed. -->
   <canvas id="sprite"></canvas>
   <div id="zzz" aria-hidden="true"><span>z</span><span>z</span><span>Z</span></div>
@@ -25,6 +25,7 @@
     <div id="resize-grip" title="Drag to resize (or scroll over her)"></div>
   </div>
   <script src="catsprite.js"></script>
+  <script src="drinks.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

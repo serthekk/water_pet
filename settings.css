@@ -133,6 +133,15 @@ h2 {
 .alarm-row .a-del, .alarm-row .a-test { padding: 0 7px; }
 #add-alarm { align-self: flex-start; }
 
+/* drinks */
+.drinks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.drink { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 5px 4px; border-radius: 8px; font-size: 11px; font-weight: 600; }
+.drink .pic { height: 30px; display: flex; align-items: flex-end; justify-content: center; }
+.drink .pic canvas, .drink .pic img { image-rendering: pixelated; }
+.drink .pic img { width: 36px; height: 21px; }
+.drink.active { border-color: var(--accent); background: var(--soft); box-shadow: 0 0 0 2px var(--accent) inset; }
+#drinkWord { width: 100%; }
+
 /* colour themes */
 .themes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .theme {

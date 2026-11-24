@@ -135,6 +135,8 @@ const DEFAULT_SETTINGS = {
   idleAnimations: true,
   chaseMouse: false,
   theme: 'cream', // colours of the right-click menu + every window (themes.js); 'custom' = customTheme
+  drink: 'bowl', // the icon next to the counter (drinks.js): bowl | water | kombucha | tea | coffee | boba
+  drinkWord: '', // her own counter word ('' = the drink's own: cups, kombucha cans, bobas)
   customTheme: { bg: '#fff6ea', card: '#ffffff', ink: '#3b2f2f', accent: '#b4621c', hover: '#f4a6b8', check: '#e8913a' }, // her own 6 colours
   position: null,
 };
@@ -143,6 +145,7 @@ const DEFAULT_SETTINGS = {
 // "breed" remembers which preset was applied last ('custom' once colours are edited).
 const CatSprites = require('./catsprite.js');
 const Themes = require('./themes.js');
+const Drinks = require('./drinks.js');
 const BREED_IDS = Object.keys(CatSprites.PRESETS);
 const EAR_STYLES = ['normal', 'small', 'fold'];
 const GENDERS = ['female', 'male', 'unspecified'];
@@ -519,6 +522,8 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
   if (Number.isInteger(raw.layoutRows)) s.layoutRows = raw.layoutRows;
   if (['stable', 'beta'].includes(raw.updateChannel)) s.updateChannel = raw.updateChannel;
   if (Themes.IDS.includes(raw.theme)) s.theme = raw.theme;
+  if (Drinks.IDS.includes(raw.drink)) s.drink = raw.drink;
+  if (typeof raw.drinkWord === 'string') { const w = raw.drinkWord.replace(/\s+/g, ' ').trim(); if (w.length <= 20) s.drinkWord = w; }
   if (raw.customTheme && typeof raw.customTheme === 'object' && !Array.isArray(raw.customTheme)) s.customTheme = Themes.cleanCustom(raw.customTheme);
   if (typeof raw.lastRunVersion === 'string' && /^(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)?$/.test(raw.lastRunVersion)) s.lastRunVersion = raw.lastRunVersion;
   if (typeof raw.lastUpdateCheck === 'string' && raw.lastUpdateCheck.length <= 40) s.lastUpdateCheck = raw.lastUpdateCheck;
@@ -824,7 +829,7 @@ let trayTipText = '';
 function trayTooltip() {
   const cat = activeCat() || { id: settings.activeCatId, name: settings.catName, gender: settings.catGender };
   const head = `${catLabel(cat)} ${settings.catName} ${GENDER_SYMBOL[settings.catGender] || ''}`.trim();
-  return `${head.slice(0, 90)}\n${day.cups} / ${settings.goalCups} cups`;
+  return `${head.slice(0, 90)}\n${day.cups} / ${settings.goalCups} ${drinkWord()}`;
 }
 
 // Label rule (follows the profile ID, not the name): Gargorl -> "In loving memory of",
@@ -1026,7 +1031,7 @@ function saveSettings() {
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
   'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
-  'autoUpdate', 'updateChannel', 'theme', 'customTheme'];
+  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord'];
 
 // For the Settings toolbar (Sleep / Wake, Hide / Show).
 function catState() {
@@ -1041,6 +1046,7 @@ function publicSettings() {
     missingStarters: missingStarters(),
     themes: Themes.list(settings.customTheme),
     customThemeLabels: Themes.CUSTOM_LABELS,
+    drinks: Drinks.list(),
     catState: catState(),
     packaged: app.isPackaged, meowStyles: publicCatalog(), soundsFolder: userSoundsDir(), breeds: CatSprites.presetList(), defaultDescriptor: DEFAULT_SETTINGS.catDescriptor };
   for (const k of EDITABLE) out[k] = settings[k];
@@ -1128,7 +1134,7 @@ function applySettings(partial) {
     setChase(settings.chaseMouse);
     updateTrayMenu();
   }
-  if (settingsWin && !settingsWin.isDestroyed() && (changed.includes('chaseMouse') || changed.includes('meowStyle') || changed.includes('catSize') || changed.includes('theme') || changed.includes('customTheme')
+  if (settingsWin && !settingsWin.isDestroyed() && (changed.includes('chaseMouse') || changed.includes('meowStyle') || changed.includes('catSize') || changed.includes('theme') || changed.includes('customTheme') || changed.includes('drink') || changed.includes('drinkWord')
     || ['breed', 'tail', 'whiskersEnabled', 'catName', 'catDescriptor', ...LOOK_KEYS].some((k) => changed.includes(k)))) {
     settingsWin.webContents.send('settings:changed', publicSettings()); // changes made elsewhere show up in Settings
   }
@@ -1201,6 +1207,9 @@ function isQuietNow() {
   return isQuietAt(n.getHours() * 60 + n.getMinutes(), settings.quietStart, settings.quietEnd);
 }
 
+// The counter word under the cat ('cups', 'kombucha cans', 'bobas' or her own).
+const drinkWord = () => Drinks.wordFor(settings.drink, settings.drinkWord);
+
 function pushState(extra = {}) {
   if (tray) {
     trayTipText = trayTooltip();
@@ -1209,7 +1218,7 @@ function pushState(extra = {}) {
   if (!win || win.isDestroyed()) return;
   win.webContents.send('state', {
     cups: day.cups, goal: settings.goalCups, volume: settings.volume, meowStyle: settings.meowStyle, sound: settings.soundEnabled,
-    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, ...extra,
+    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), ...extra,
   });
 }
 
@@ -2746,7 +2755,7 @@ function applyLoginItem() {
 function registerIpc() {
   ipcMain.handle('get-state', () => ({
     cups: day.cups, goal: settings.goalCups, volume: settings.volume, meowStyle: settings.meowStyle, sound: settings.soundEnabled,
-    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, pose: behavior.pose,
+    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), pose: behavior.pose,
   }));
   // File bytes for Web Audio (works the same inside the packaged asar).
   // `clean: true` = her own file, the renderer cleans it before use.
@@ -3380,6 +3389,24 @@ async function runSelftest() {
       record('Settings: "My colours" editor saves her own colours and applies them', settings.theme === 'custom' && settings.customTheme.bg === '#d0f0e0'
         && mine.shown && mine.bg === 'rgb(208, 240, 224)' && readJsonSafe(settingsFile(), {}).customTheme.bg === '#d0f0e0', JSON.stringify(mine));
       applySettings({ theme: 'cream' });
+      // drink: kombucha -> pixel can next to the counter + "kombucha cans"; her own word wins
+      clearReports();
+      await swc.executeJavaScript(`document.querySelector('#drinks .drink[data-drink="kombucha"]').click()`);
+      await waitFor((r) => r.type === 'settings:saved' && r.data.partial.drink === 'kombucha', 3000);
+      await sleep(250);
+      const k = await win.webContents.executeJavaScript(`({ text: document.getElementById('count-text').textContent, can: !document.getElementById('drink').hidden && document.getElementById('drink').width > 0,
+        bowl: !document.getElementById('bowl').hidden, smooth: document.getElementById('drink').getContext('2d').imageSmoothingEnabled })`);
+      record('drink: kombucha shows a pixel can + "kombucha cans" under the cat', k.text.endsWith(`/ ${settings.goalCups} kombucha cans`) && k.can && !k.bowl && !k.smooth && trayTipText.endsWith('kombucha cans'), JSON.stringify(k));
+      clearReports();
+      await swc.executeJavaScript(`(() => { const w = document.getElementById('drinkWord'); w.value = 'yuzu cans'; w.dispatchEvent(new Event('input')); })()`);
+      await waitFor((r) => r.type === 'settings:saved' && r.data.partial.drinkWord === 'yuzu cans', 3000);
+      await sleep(200);
+      const k2 = await win.webContents.executeJavaScript(`document.getElementById('count-text').textContent`);
+      record('drink: her own counter word', k2.endsWith('yuzu cans') && readJsonSafe(settingsFile(), {}).drinkWord === 'yuzu cans', k2);
+      applySettings({ drink: 'bowl', drinkWord: '' });
+      await sleep(200);
+      const k3 = await win.webContents.executeJavaScript(`({ text: document.getElementById('count-text').textContent, bowl: !document.getElementById('bowl').hidden })`);
+      record('drink: back to the cat bowl + "cups"', k3.text.endsWith(' cups') && k3.bowl, JSON.stringify(k3));
       // toolbar: What's new -> the notes window (friendly notes from release-notes.json)
       clearReports();
       await swc.executeJavaScript(`document.querySelector('#toolbar [data-action="notes"]').click()`);

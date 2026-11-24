@@ -183,6 +183,50 @@
   }
 
   // --- Colour themes ------------------------------------------------------------
+  // --- Drink (icon next to the counter + the counter word) ---------------------------
+  const drinksBox = $('drinks');
+  const wordIn = $('drinkWord');
+  function fillDrinks(list, selected, word) {
+    if (!drinksBox.children.length) {
+      for (const d of list) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'drink';
+        b.dataset.drink = d.id;
+        b.setAttribute('role', 'radio');
+        const pic = document.createElement('span');
+        pic.className = 'pic';
+        if (d.id === 'bowl') {
+          const img = document.createElement('img');
+          img.src = 'assets/bowl.png';
+          img.alt = '';
+          pic.appendChild(img);
+        } else {
+          const c = document.createElement('canvas');
+          window.Drinks.draw(c, d.id, 2);
+          pic.appendChild(c);
+        }
+        b.append(pic, document.createTextNode(d.label));
+        b.dataset.tip = `Counter: "3 / 8 ${d.word}"`;
+        b.addEventListener('click', () => save({ drink: d.id }));
+        drinksBox.appendChild(b);
+      }
+    }
+    drinksBox.querySelectorAll('.drink').forEach((b) => {
+      const on = b.dataset.drink === selected;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', String(on));
+    });
+    const d = list.find((x) => x.id === selected);
+    wordIn.placeholder = d ? d.word : 'cups';
+    if (document.activeElement !== wordIn) wordIn.value = word || '';
+  }
+  let wordTimer = null;
+  wordIn.addEventListener('input', () => {
+    clearTimeout(wordTimer);
+    wordTimer = setTimeout(() => save({ drinkWord: wordIn.value.replace(/\s+/g, ' ').trim() }), 500);
+  });
+
   // Each chip: its colour stripe, its name and a dot for every colour it uses.
   const themesBox = $('themes');
   const DOT_KEYS = ['bg', 'card', 'ink', 'accent', 'hover', 'check'];
@@ -292,6 +336,7 @@
     $('mouseResize').checked = s.mouseResize;
     fillAlarms(s.alarms);
     if (s.themes) fillThemes(s.themes, s.theme, s.customThemeLabels);
+    if (s.drinks) fillDrinks(s.drinks, s.drink, s.drinkWord);
     if (s.catState) fillToolbar(s.catState);
     lastS = s;
     $('idleSleepEnabled').checked = s.idleSleepEnabled;

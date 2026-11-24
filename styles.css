@@ -186,6 +186,10 @@ html, body {
 body.can-resize #pet:hover #resize-grip,
 body.resizing #resize-grip { opacity: 1; pointer-events: auto; }
 
+/* The chosen drink (drinks.js), drawn at 2 px per cell. Never smooth-scaled. */
+#drink { flex: none; image-rendering: pixelated; filter: drop-shadow(0 0 1px #1d1616); }
+#bowl[hidden], #drink[hidden] { display: none; }
+
 /* Hover-only buttons: a column in the hit area's top-right corner (empty sky next
    to the ears when sitting), so they never cover the cup counter. */
 #buttons {
