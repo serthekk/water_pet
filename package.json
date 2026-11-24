@@ -1,7 +1,7 @@
 {
   "name": "water-cat-tracker",
   "productName": "WaterCat",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A pixel cat on your Windows desktop that reminds you to drink water",
   "main": "main.js",
   "author": "serthekk",
