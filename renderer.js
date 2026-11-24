@@ -12,6 +12,7 @@
   const resetBtn = document.getElementById('reset-btn');
   const quitBtn = document.getElementById('quit-btn');
   const restartBtn = document.getElementById('restart-btn');
+  const settingsBtn = document.getElementById('settings-btn');
   const grip = document.getElementById('resize-grip');
 
   const BUBBLE_MS = 10000;
@@ -455,7 +456,7 @@
     };
     const n = S.noseRect(reportedPose);
     const nose = n && { x: canvasLeft + n.x * CELL, y: SPRITE_TOP + n.y * CELL, width: n.w * CELL, height: n.h * CELL };
-    api.hitRects({ pet: r(pet), grip: r(grip), buttons: [resetBtn, hideBtn, restartBtn, quitBtn].map(r), nose });
+    api.hitRects({ pet: r(pet), grip: r(grip), buttons: [resetBtn, hideBtn, restartBtn, quitBtn, settingsBtn].map(r), nose });
   }
 
   // --- petting (Stage 3) ----------------------------------------------------
@@ -643,6 +644,7 @@
     'hide-btn': () => api.hideCat(),
     'restart-btn': () => api.restartApp(),
     'quit-btn': () => api.quitApp(),
+    'settings-btn': () => api.openSettings(),
   };
   window.addEventListener('mouseup', async (e) => {
     if (e.button !== 0) return;

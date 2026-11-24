@@ -1,41 +1,51 @@
-/* Cat info card: soft pixel-style border, readable text. Window is transparent around it. */
+/* Cat info card: soft pixel-style border, readable text. Window is transparent around it.
+   Colours come from the theme (main -> preload sets --bg, --ink, ... on <html>). */
+:root {
+  --bg: #fff6ea; --card: #ffffff; --ink: #3b2f2f; --muted: #6b5a5a; --line: #ecdcc6;
+  --accent: #b4621c; --hover: #f4a6b8; --check: #e8913a; --soft: #fde8c8;
+  --grad: linear-gradient(90deg, #e8913a, #f4a6b8, #f2c14e);
+}
 * { box-sizing: border-box; }
 html, body {
   margin: 0;
   background: transparent;
   font: 14px/1.5 'Segoe UI', system-ui, sans-serif;
-  color: #3b2f2f;
+  color: var(--ink);
   overflow: hidden;
   user-select: text;
 }
 .card {
   position: relative;
   margin: 6px;
-  padding: 12px 14px 14px;
-  background: #fff6ea;
-  border: 3px solid #3b2f2f;
+  padding: 14px 14px 14px;
+  background: var(--bg);
+  border: 3px solid var(--ink);
   border-radius: 6px;
   /* stepped "pixel" shadow */
-  box-shadow: 3px 3px 0 #3b2f2f33, 6px 6px 0 #3b2f2f1a;
+  box-shadow: 3px 3px 0 color-mix(in srgb, var(--ink) 20%, transparent), 6px 6px 0 color-mix(in srgb, var(--ink) 10%, transparent);
   outline: none;
+  overflow: hidden;
 }
+/* the theme's colour stripe along the top */
+.card::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--grad); }
 .badge {
   display: inline-block;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  background: #f4a6b8;
-  border: 2px solid #3b2f2f;
+  background: var(--hover);
+  color: #3b2f2f;
+  border: 2px solid var(--ink);
   border-radius: 10px;
   padding: 0 8px;
 }
 .badge.memory { background: #d9dbe0; }
 .top { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 /* content-box: the border sits OUTSIDE the canvas, so the portrait stays an exact integer scale */
-#portrait { box-sizing: content-box; image-rendering: pixelated; flex: none; background: #ecdcc6; border-radius: 4px; border: 2px solid #3b2f2f; }
+#portrait { box-sizing: content-box; image-rendering: pixelated; flex: none; background: var(--line); border-radius: 4px; border: 2px solid var(--ink); }
 h1 { font-size: 22px; line-height: 1.2; margin: 0; overflow-wrap: anywhere; }
-.symbol { font-size: 18px; color: #b4621c; }
+.symbol { font-size: 18px; color: var(--accent); }
 #description {
   margin: 10px 0 0;
   font-size: 14px;
@@ -43,19 +53,19 @@ h1 { font-size: 22px; line-height: 1.2; margin: 0; overflow-wrap: anywhere; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-#description.empty { color: #8a7a7a; font-style: italic; }
+#description.empty { color: var(--muted); font-style: italic; }
 #close {
   position: absolute;
-  top: 6px;
+  top: 9px;
   right: 6px;
   width: 22px;
   height: 22px;
   padding: 0;
   font: bold 14px/1 'Segoe UI', sans-serif;
-  color: #3b2f2f;
-  background: #fff;
-  border: 2px solid #3b2f2f;
+  color: var(--ink);
+  background: var(--card);
+  border: 2px solid var(--ink);
   border-radius: 4px;
   cursor: pointer;
 }
-#close:hover { background: #f4a6b8; }
+#close:hover { background: var(--hover); color: #3b2f2f; }

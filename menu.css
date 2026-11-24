@@ -1,0 +1,72 @@
+/* The cat's right-click / tray menu. Transparent window; the menu card has a soft
+   shadow inside the window's margin. Colours come from the theme (main -> preload). */
+:root {
+  --bg: #fff6ea; --card: #ffffff; --ink: #3b2f2f; --muted: #6b5a5a; --line: #ecdcc6;
+  --accent: #b4621c; --hover: #f4a6b8; --check: #e8913a; --soft: #fde8c8;
+  --grad: linear-gradient(90deg, #e8913a, #f4a6b8, #f2c14e);
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  font: 13px/1.3 'Segoe UI', system-ui, sans-serif;
+  color: var(--ink);
+  user-select: none;
+  cursor: default;
+}
+/* the click catcher (catcher.html): almost invisible, but Windows still sends it clicks */
+body.catcher { width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.01); }
+
+.menu {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 210px;
+  margin: 4px 10px 12px 4px; /* room for the shadow */
+  padding: 9px 5px 5px;
+  background: var(--bg);
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22), 3px 3px 0 color-mix(in srgb, var(--ink) 18%, transparent);
+  overflow: hidden;
+}
+/* the theme's colour stripe along the top */
+.menu::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--grad); }
+
+.item {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px 5px 6px;
+  border-radius: 7px;
+  white-space: nowrap;
+}
+.item .mark { text-align: center; color: var(--accent); font-weight: 700; }
+.item .arrow { color: var(--muted); font-size: 12px; transition: transform 0.12s; }
+.item.open .arrow { transform: rotate(90deg); }
+.item.enabled:hover, .item.enabled.kbd { background: var(--hover); color: #3b2f2f; }
+.item.enabled:hover .mark, .item.enabled.kbd .mark, .item.enabled:hover .arrow, .item.enabled.kbd .arrow { color: #3b2f2f; }
+.dark .item.enabled:hover, .dark .item.enabled.kbd { color: var(--ink); }
+.dark .item.enabled:hover .mark, .dark .item.enabled.kbd .mark, .dark .item.enabled:hover .arrow, .dark .item.enabled.kbd .arrow { color: var(--ink); }
+.item.disabled { color: var(--muted); }
+.item.title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  padding-top: 3px;
+}
+.item.title .label::first-letter { color: var(--accent); }
+.item.danger.enabled:hover { background: #f6c3c0; }
+
+.sep { height: 2px; margin: 4px 8px; background: var(--line); border-radius: 1px; }
+
+.sub {
+  display: none;
+  flex-direction: column;
+  margin: 1px 0 3px 14px;
+  padding-left: 4px;
+  border-left: 2px solid var(--line);
+}
+.sub.open { display: flex; }

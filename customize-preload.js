@@ -6,6 +6,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 // lost): ask main to bring it properly to the front.
 window.addEventListener('pointerdown', () => { if (!document.hasFocus()) ipcRenderer.send('window:claim-focus'); }, true);
 
+// Colour theme from main (themes.js): CSS variables on <html>.
+ipcRenderer.on('theme', (_e, t) => {
+  const root = document.documentElement;
+  for (const [k, v] of Object.entries(t.vars)) root.style.setProperty(`--${k}`, v);
+  root.classList.toggle('dark', !!t.dark);
+});
+
 contextBridge.exposeInMainWorld('customizeApi', {
   // every call is for one cat (catId = the cat selected in this window)
   get: (catId) => ipcRenderer.invoke('customize:get', catId),

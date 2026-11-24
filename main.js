@@ -134,12 +134,14 @@ const DEFAULT_SETTINGS = {
   lastRunVersion: '', // the app version that ran last (an update shows one 'I got an update!' bubble)
   idleAnimations: true,
   chaseMouse: false,
+  theme: 'cream', // colours of the right-click menu + every window (themes.js)
   position: null,
 };
 
 // Layered sprite (Stage 1). A preset sets colors + pattern + ear style + fluff/tufts;
 // "breed" remembers which preset was applied last ('custom' once colours are edited).
 const CatSprites = require('./catsprite.js');
+const Themes = require('./themes.js');
 const BREED_IDS = Object.keys(CatSprites.PRESETS);
 const EAR_STYLES = ['normal', 'small', 'fold'];
 const GENDERS = ['female', 'male', 'unspecified'];
@@ -363,7 +365,8 @@ let nextReminderAt = 0;
 let tickTimer = null;
 let drag = null; // { timer, startCursor, startBounds, startedAt }
 let fakeCursor = null; // selftest only: replaces the real cursor for drag tests
-let contextMenu = null;
+let menuWin = null; // our own themed right-click / tray menu (menu.html), hidden when closed
+let menuShown = null; // { model, source, anchor, x, y } while it is open
 
 const dataDir = () => app.getPath('userData');
 const settingsFile = () => path.join(dataDir(), 'settings.json');
@@ -514,6 +517,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
   if (alarms) s.alarms = alarms;
   if (Number.isInteger(raw.layoutRows)) s.layoutRows = raw.layoutRows;
   if (['stable', 'beta'].includes(raw.updateChannel)) s.updateChannel = raw.updateChannel;
+  if (Themes.IDS.includes(raw.theme)) s.theme = raw.theme;
   if (typeof raw.lastRunVersion === 'string' && /^(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)?$/.test(raw.lastRunVersion)) s.lastRunVersion = raw.lastRunVersion;
   if (typeof raw.lastUpdateCheck === 'string' && raw.lastUpdateCheck.length <= 40) s.lastUpdateCheck = raw.lastUpdateCheck;
   if (typeof raw.skippedVersion === 'string' && /^(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)?$/.test(raw.skippedVersion)) s.skippedVersion = raw.skippedVersion;
@@ -960,6 +964,7 @@ function openInfo(id, source) {
   const w = infoWin;
   w.setAlwaysOnTop(true, 'floating');
   w.setMenu(null);
+  themeOnLoad(w);
   w.webContents.on('will-navigate', (e) => e.preventDefault());
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   w.on('blur', () => { if (infoWin === w) closeInfo('clicked outside'); }); // only after she clicked into it
@@ -1019,7 +1024,12 @@ function saveSettings() {
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
   'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
-  'autoUpdate', 'updateChannel'];
+  'autoUpdate', 'updateChannel', 'theme'];
+
+// For the Settings toolbar (Sleep / Wake, Hide / Show).
+function catState() {
+  return { asleep: behavior.state === 'sleeping', visible: !!(win && !win.isDestroyed() && win.isVisible()) };
+}
 
 function publicSettings() {
   syncActive(); // the cat list must show the active cat's latest name
@@ -1027,6 +1037,8 @@ function publicSettings() {
     cats: settings.cats.map((c) => ({ id: c.id, name: c.name, gender: c.gender })),
     activeCatId: settings.activeCatId,
     missingStarters: missingStarters(),
+    themes: Themes.list(),
+    catState: catState(),
     packaged: app.isPackaged, meowStyles: publicCatalog(), soundsFolder: userSoundsDir(), breeds: CatSprites.presetList(), defaultDescriptor: DEFAULT_SETTINGS.catDescriptor };
   for (const k of EDITABLE) out[k] = settings[k];
   return out;
@@ -1108,11 +1120,12 @@ function applySettings(partial) {
     log(`renamed to ${settings.catName}; descriptor stays "${settings.catDescriptor}" until edited`);
   }
   if (changed.includes('alarms')) alarmsEdited(prev.alarms);
+  if (changed.includes('theme')) broadcastTheme();
   if (changed.includes('chaseMouse')) {
     setChase(settings.chaseMouse);
     updateTrayMenu();
   }
-  if (settingsWin && !settingsWin.isDestroyed() && (changed.includes('chaseMouse') || changed.includes('meowStyle') || changed.includes('catSize')
+  if (settingsWin && !settingsWin.isDestroyed() && (changed.includes('chaseMouse') || changed.includes('meowStyle') || changed.includes('catSize') || changed.includes('theme')
     || ['breed', 'tail', 'whiskersEnabled', 'catName', 'catDescriptor', ...LOOK_KEYS].some((k) => changed.includes(k)))) {
     settingsWin.webContents.send('settings:changed', publicSettings()); // changes made elsewhere show up in Settings
   }
@@ -1887,8 +1900,12 @@ function createWindow() {
     }
   });
   win.on('closed', () => { win = null; });
-  win.on('show', updateTrayMenu);
-  win.on('hide', updateTrayMenu);
+  const shownChanged = () => {
+    updateTrayMenu();
+    if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('settings:changed', publicSettings()); // toolbar: Hide / Show
+  };
+  win.on('show', shownChanged);
+  win.on('hide', shownChanged);
 
   const wc = win.webContents;
   wc.on('console-message', (...args) => {
@@ -1905,8 +1922,7 @@ function createWindow() {
     log(`context-menu at (${params.x}, ${params.y})`);
     behavior.lastActive = Date.now(); // a right-click doesn't wake her; the menu has "Wake up"
     if (selftestHooks.onContextMenu) selftestHooks.onContextMenu(params);
-    contextMenu = buildContextMenu();
-    contextMenu.popup({ window: win });
+    popupMenu(buildContextMenu(), 'menu');
   });
   // Block navigation / new windows (drag-dropped files, links).
   wc.on('will-navigate', (e) => e.preventDefault());
@@ -1979,6 +1995,7 @@ const inRect = (p, r) => !!r && p.x >= r.x && p.x < r.x + r.width && p.y >= r.y 
 const onNose = (p) => !!(hitRects && hitRects.nose) && inRect(p, hitRects.nose);
 
 function onOsLeftDown() {
+  hideMenu('clicked the cat'); // the cat never takes focus, so the menu doesn't see this click
   if (!win || win.isDestroyed() || !hitRects) return;
   const c = cursorPoint();
   const b = win.getBounds();
@@ -2055,6 +2072,17 @@ function bringToFront(w, reason) {
   log(`window to front: "${w.getTitle()}" (${reason})`);
 }
 
+// Colour theme (themes.js): every window's preload sets the CSS variables it gets here.
+function sendTheme(w) {
+  if (w && !w.isDestroyed()) w.webContents.send('theme', Themes.payload(settings.theme));
+}
+function themeOnLoad(w) {
+  w.webContents.on('dom-ready', () => sendTheme(w));
+}
+function broadcastTheme() {
+  for (const w of [settingsWin, customizeWin, infoWin, notesWin, menuWin]) sendTheme(w);
+}
+
 function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) {
     bringToFront(settingsWin, 'opened again');
@@ -2081,6 +2109,7 @@ function openSettings() {
     },
   });
   settingsWin.setMenu(null);
+  themeOnLoad(settingsWin);
   const wc = settingsWin.webContents;
   wc.on('preload-error', (_e, p, err) => log(`SETTINGS PRELOAD ERROR in ${p}`, err));
   wc.on('render-process-gone', (_e, d) => log('SETTINGS RENDERER GONE', d));
@@ -2094,6 +2123,66 @@ function openSettings() {
   settingsWin.loadFile(path.join(__dirname, 'settings.html'));
   log('settings window opened');
   return settingsWin;
+}
+
+// --- "What's new" window ---------------------------------------------------------
+// Friendly release notes from release-notes.json (bundled, works offline), plus the
+// update state ("v0.3.0 is ready - Restart to update").
+let notesWin = null;
+const semverParts = (v) => String(v).split(/[.-]/).slice(0, 3).map((n) => parseInt(n, 10) || 0);
+function compareVersions(a, b) {
+  const x = semverParts(a);
+  const y = semverParts(b);
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return 0;
+}
+function releaseNotes() {
+  const data = readJsonSafe(path.join(__dirname, 'release-notes.json'), {});
+  const list = Array.isArray(data.releases) ? data.releases : [];
+  const current = app.getVersion();
+  return list
+    .filter((r) => r && typeof r.version === 'string' && Array.isArray(r.items))
+    // a version newer than this app: only shown in dev (notes being written for the next release)
+    .filter((r) => compareVersions(r.version, current) <= 0 || !app.isPackaged)
+    .map((r) => ({ ...r, upcoming: compareVersions(r.version, current) > 0 }));
+}
+function openNotes(source) {
+  if (notesWin && !notesWin.isDestroyed()) {
+    bringToFront(notesWin, 'opened again');
+    return notesWin;
+  }
+  notesWin = new BrowserWindow({
+    width: 420,
+    height: 560,
+    useContentSize: true,
+    show: false,
+    resizable: true,
+    minWidth: 340,
+    minHeight: 360,
+    maximizable: false,
+    fullscreenable: false,
+    title: "What's new",
+    icon: asset('tray.png'),
+    backgroundColor: '#fff6ea',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'notes-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+    },
+  });
+  notesWin.setMenu(null);
+  themeOnLoad(notesWin);
+  const wc = notesWin.webContents;
+  wc.on('will-navigate', (e) => e.preventDefault());
+  wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+  notesWin.once('ready-to-show', () => (SELFTEST ? notesWin.showInactive() : bringToFront(notesWin, 'opened')));
+  notesWin.on('closed', () => { notesWin = null; });
+  notesWin.loadFile(path.join(__dirname, 'notes.html'));
+  log(`notes window opened (${source})`);
+  return notesWin;
 }
 
 // --- Customize window (Stage 2) -------------------------------------------------
@@ -2127,6 +2216,7 @@ function openCustomize() {
     },
   });
   customizeWin.setMenu(null);
+  themeOnLoad(customizeWin);
   const wc = customizeWin.webContents;
   wc.on('preload-error', (_e, p, err) => log(`CUSTOMIZE PRELOAD ERROR in ${p}`, err));
   wc.on('render-process-gone', (_e, d) => log('CUSTOMIZE RENDERER GONE', d));
@@ -2213,7 +2303,7 @@ function catHeaderItems(source) {
   syncActive();
   const cat = activeCat();
   return [
-    { label: `${cat.name} ${GENDER_SYMBOL[cat.gender] || ''}`.trim(), enabled: false },
+    { label: `${cat.name} ${GENDER_SYMBOL[cat.gender] || ''}`.trim(), enabled: false, role: 'title' },
     { label: labelLine(cat), click: () => openInfo(cat.id, source) },
   ];
 }
@@ -2246,8 +2336,205 @@ function switchCatMenu(source) {
   };
 }
 
+// --- Our own menu (menu.html) ---------------------------------------------------
+// Windows draws native menus itself (no colours) and a native menu opened from the
+// never-focused cat doesn't close when she clicks elsewhere. So the right-click and tray
+// menus are a small themed window: it takes focus only while it is open and closes on
+// any click outside it (blur), Esc, a pick, or a click on the cat.
+//
+// menuModel(template) turns an Electron-style template into { items }: each item has
+// label / type / enabled / checked / submenu and click() (a checkbox toggles first,
+// like an Electron MenuItem), so the selftest can still find and click items.
+function menuModel(template) {
+  const items = template.map((t) => {
+    if (t.type === 'separator') return { type: 'separator', label: '' };
+    const it = {
+      label: String(t.label || ''),
+      type: t.type || 'normal',
+      enabled: t.enabled !== false,
+      checked: !!t.checked,
+      role: t.role === 'title' ? 'title' : '', // the cat's name at the top
+      submenu: Array.isArray(t.submenu) ? menuModel(t.submenu) : null,
+    };
+    it.click = () => {
+      if (it.type === 'checkbox') it.checked = !it.checked;
+      if (typeof t.click === 'function') t.click(it);
+    };
+    return it;
+  });
+  return { items };
+}
+// What the menu page gets: plain data, items addressed by path ("3" or "3.1").
+function menuData(model, prefix = '') {
+  return model.items.map((it, i) => ({
+    id: `${prefix}${i}`,
+    label: it.label,
+    type: it.type,
+    enabled: it.enabled,
+    checked: it.checked,
+    role: it.role || '',
+    sub: it.submenu ? menuData(it.submenu, `${prefix}${i}.`) : null,
+  }));
+}
+function menuItemAt(model, id) {
+  let items = model.items;
+  let it = null;
+  for (const i of String(id).split('.').map(Number)) {
+    it = items[i];
+    if (!it) return null;
+    items = it.submenu ? it.submenu.items : [];
+  }
+  return it;
+}
+function ensureMenuWin() {
+  if (menuWin && !menuWin.isDestroyed()) return menuWin;
+  menuWin = new BrowserWindow({
+    width: 240,
+    height: 300,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    title: 'WaterCat menu',
+    webPreferences: {
+      preload: path.join(__dirname, 'menu-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+      backgroundThrottling: false, // it draws while hidden, before it is shown
+    },
+  });
+  const w = menuWin;
+  w.setAlwaysOnTop(true, 'pop-up-menu');
+  w.setMenu(null);
+  themeOnLoad(w);
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('did-finish-load', () => { if (menuShown && menuWin === w) w.webContents.send('menu:show', { items: menuData(menuShown.model), source: menuShown.source }); });
+  w.on('blur', () => hideMenu('menu lost focus'));
+  w.on('closed', () => { if (menuWin === w) { menuWin = null; menuShown = null; } });
+  w.loadFile(path.join(__dirname, 'menu.html'));
+  return w;
+}
+// Invisible, never-focused layer over every screen while the menu is open: the first
+// click outside the menu lands on it and closes the menu (like a native menu). Needed
+// because Windows may refuse the menu the focus, and then it would never get a blur.
+let catcherWin = null;
+function ensureCatcher() {
+  if (catcherWin && !catcherWin.isDestroyed()) return catcherWin;
+  catcherWin = new BrowserWindow({
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: false,
+    alwaysOnTop: true,
+    title: 'WaterCat menu catcher',
+    webPreferences: {
+      preload: path.join(__dirname, 'menu-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+      backgroundThrottling: false,
+    },
+  });
+  const w = catcherWin;
+  w.setAlwaysOnTop(true, 'pop-up-menu');
+  w.setMenu(null);
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.on('closed', () => { if (catcherWin === w) catcherWin = null; });
+  // WM_MOUSEACTIVATE: a click on it, even when Windows swallows the press itself
+  if (process.platform === 'win32' && w.hookWindowMessage) {
+    try { w.hookWindowMessage(0x0021, () => setImmediate(() => hideMenu('clicked outside'))); } catch (err) { log('catcher: no WM_MOUSEACTIVATE hook', err); }
+  }
+  w.loadFile(path.join(__dirname, 'catcher.html'));
+  return w;
+}
+function showCatcher() {
+  const c = ensureCatcher();
+  // all displays together (DIP); the menu goes on top of it
+  const all = screen.getAllDisplays().map((d) => d.bounds);
+  const x0 = Math.min(...all.map((b) => b.x));
+  const y0 = Math.min(...all.map((b) => b.y));
+  const x1 = Math.max(...all.map((b) => b.x + b.width));
+  const y1 = Math.max(...all.map((b) => b.y + b.height));
+  c.setBounds({ x: x0, y: y0, width: x1 - x0, height: y1 - y0 });
+  c.showInactive();
+}
+
+function popupMenu(model, source) {
+  const w = ensureMenuWin();
+  menuShown = { model, source, anchor: screen.getCursorScreenPoint(), x: null, y: null };
+  if (!w.webContents.isLoading()) w.webContents.send('menu:show', { items: menuData(model), source });
+  log(`menu opened (${source})`);
+  return menuShown;
+}
+// The page measured itself: place the menu by the cursor (flipped so it's never clipped),
+// then show it and give it focus (so a click anywhere else closes it).
+function placeMenu(width, height) {
+  if (!menuShown || !menuWin || menuWin.isDestroyed()) return;
+  const w = Math.max(120, Math.min(Math.round(width), 400));
+  const area = screen.getDisplayNearestPoint(menuShown.anchor).workArea;
+  const h = Math.max(40, Math.min(Math.round(height), area.height));
+  const a = menuShown.anchor;
+  let x = menuShown.x;
+  let y = menuShown.y;
+  if (x === null) {
+    x = a.x + 2;
+    if (x + w > area.x + area.width) x = a.x - w - 2;
+    y = a.y + 2;
+    if (y + h > area.y + area.height) y = a.y - h - 2;
+  }
+  x = Math.max(area.x, Math.min(x, area.x + area.width - w));
+  y = Math.max(area.y, Math.min(y, area.y + area.height - h));
+  menuShown.x = x;
+  menuShown.y = y;
+  menuWin.setBounds({ x, y, width: w, height: h });
+  log(`menu placed ${w}x${h} at (${x}, ${y}) (asked ${Math.round(width)}x${Math.round(height)}, got ${JSON.stringify(menuWin.getBounds())})`);
+  if (!menuWin.isVisible()) {
+    if (!SELFTEST) showCatcher(); // first, so the menu ends up above it
+    if (SELFTEST) menuWin.showInactive();
+    else {
+      menuWin.show();
+      menuWin.moveTop();
+      menuWin.focus(); // keyboard (Esc, arrows) when Windows allows it
+      menuWin.webContents.focus();
+    }
+  }
+}
+function hideMenu(reason) {
+  if (!menuShown) return false;
+  menuShown = null;
+  if (catcherWin && !catcherWin.isDestroyed()) catcherWin.hide();
+  if (menuWin && !menuWin.isDestroyed()) {
+    menuWin.hide();
+    menuWin.webContents.send('menu:hidden');
+  }
+  log(`menu closed (${reason})`);
+  return true;
+}
+// Windows other than the menu (the selftest counts these).
+const appWindows = () => BrowserWindow.getAllWindows().filter((w) => w !== menuWin && w !== catcherWin);
+
 function buildContextMenu() {
-  return Menu.buildFromTemplate([
+  return menuModel([
     ...updateMenuItems(),
     ...catHeaderItems('menu'),
     { label: `Pets today: ${petsOf().today}`, enabled: false },
@@ -2281,6 +2568,11 @@ function createTray() {
   if (img.isEmpty()) img = nativeImage.createFromPath(asset('cat_pixel.png'));
   tray = new Tray(img);
   tray.on('click', () => (win && win.isVisible() ? hideCat('tray') : showCat()));
+  // our own themed menu (the native one can't take colours)
+  tray.on('right-click', () => {
+    updateTrayMenu();
+    popupMenu(lastTrayMenu, 'tray');
+  });
   updateTrayMenu();
   pushState();
   log('tray created');
@@ -2289,7 +2581,7 @@ function createTray() {
 function updateTrayMenu() {
   if (!tray) return;
   const visible = !!(win && !win.isDestroyed() && win.isVisible());
-  lastTrayMenu = Menu.buildFromTemplate([
+  lastTrayMenu = menuModel([
     ...updateMenuItems(),
     ...catHeaderItems('tray'),
     { type: 'separator' },
@@ -2309,7 +2601,6 @@ function updateTrayMenu() {
     { label: 'Restart cat', click: () => restartApp('tray') },
     { label: 'Quit', click: () => quitApp('tray') },
   ]);
-  tray.setContextMenu(lastTrayMenu);
 }
 
 // --- Updates (updater.js) ------------------------------------------------------
@@ -2363,7 +2654,7 @@ function versionMenuItems(source) {
   if (st.state === 'checking') check = { label: 'Checking for updates…', enabled: false };
   if (st.state === 'downloading') check = { label: `Downloading v${st.version}… ${st.progress || 0}%`, enabled: false };
   if (st.state === 'downloaded') check = { label: `Update ready (v${st.version})`, enabled: false };
-  return [{ label: `Version ${app.getVersion()}`, enabled: false }, check];
+  return [{ label: `Version ${app.getVersion()}`, enabled: false }, { label: "What's new…", click: () => openNotes(source) }, check];
 }
 function updateStatus() {
   const base = { current: app.getVersion(), mode: SELFTEST ? 'selftest' : 'off', state: 'off', version: null, progress: 0, lastResult: '', releaseUrl: 'https://github.com/serthekk/water_pet/releases' };
@@ -2371,6 +2662,7 @@ function updateStatus() {
 }
 function sendUpdateStatus() {
   if (customizeWin && !customizeWin.isDestroyed()) customizeWin.webContents.send('customize:update-status', updateStatus());
+  if (notesWin && !notesWin.isDestroyed()) notesWin.webContents.send('notes:update-status', updateStatus());
 }
 // "Check for updates" (menu / tray / Customize): she asked, so the answer is a small
 // quiet bubble from the cat (no sound) plus the menu / Customize text.
@@ -2463,7 +2755,19 @@ function registerIpc() {
       return { id: m.id, label: m.label, clean: false, data: null };
     }
   }));
-  ipcMain.on('press-start', () => beginPress('page'));
+  ipcMain.on('press-start', () => { hideMenu('clicked the cat'); beginPress('page'); });
+  // our own menu (menu.html)
+  const fromMenu = (e) => !!menuWin && !menuWin.isDestroyed() && e.sender === menuWin.webContents;
+  const fromCatcher = (e) => !!catcherWin && !catcherWin.isDestroyed() && e.sender === catcherWin.webContents;
+  ipcMain.on('menu:size', (e, w, h) => { if (fromMenu(e) && Number.isFinite(w) && Number.isFinite(h)) placeMenu(w, h); });
+  ipcMain.on('menu:close', (e, reason) => { if (fromMenu(e) || fromCatcher(e)) hideMenu(String(reason || 'page')); });
+  ipcMain.on('menu:click', (e, id) => {
+    if (!fromMenu(e) || !menuShown) return;
+    const it = menuItemAt(menuShown.model, id);
+    if (!it || !it.enabled || it.submenu || it.type === 'separator') return;
+    hideMenu(`picked "${it.label}"`);
+    try { it.click(); } catch (err) { log(`menu item "${it.label}" failed`, err); }
+  });
   ipcMain.handle('pet', () => pet('stroke', 'mouse')); // the page only asks for strokes; boops are decided here
   ipcMain.handle('release', (_e, info) => onRelease(info || {}));
   ipcMain.on('press-cancel', () => finishPress('cancel'));
@@ -2472,6 +2776,7 @@ function registerIpc() {
   ipcMain.on('hide-cat', () => hideCat('button'));
   ipcMain.on('quit-app', () => quitApp('button'));
   ipcMain.on('restart-app', () => restartApp('button'));
+  ipcMain.on('open-settings', () => openSettings());
   ipcMain.handle('settings:restart', () => restartApp('settings'));
   ipcMain.on('resize-start', () => beginResize('page'));
   ipcMain.on('resize-step', (_e, dir) => resizeStep(Number(dir)));
@@ -2483,6 +2788,26 @@ function registerIpc() {
   });
   ipcMain.handle('settings:test-alarm', (_e, id) => testAlarm(String(id)));
   ipcMain.handle('settings:open-customize', () => { openCustomize(); return true; });
+  // Settings' quick-action toolbar
+  ipcMain.handle('settings:action', (_e, name) => {
+    const done = (d) => ({ done: d, state: catState() });
+    switch (String(name)) {
+      case 'customize': openCustomize(); return done('customize');
+      case 'notes': openNotes('settings'); return done('notes');
+      case 'test-reminder': fireReminder('test'); return done('test-reminder');
+      case 'sleep':
+        if (behavior.state === 'sleeping') { wakeUp('settings'); return done('wake'); }
+        if (!win || win.isDestroyed() || !win.isVisible()) return { error: 'Show the cat first', state: catState() };
+        goToSleep('manual');
+        return done('sleep');
+      case 'hide':
+        if (win && !win.isDestroyed() && win.isVisible()) { hideCat('settings'); return done('hide'); }
+        showCat();
+        return done('show');
+      case 'restart': restartApp('settings'); return done('restart');
+      default: return { error: 'Unknown action' };
+    }
+  });
   // Info window (channel names must match info-preload.js)
   const fromInfo = (e) => infoWin && !infoWin.isDestroyed() && e.sender === infoWin.webContents;
   ipcMain.handle('info:get', (e) => (fromInfo(e) ? infoData(infoCatId) : null));
@@ -2515,11 +2840,15 @@ function registerIpc() {
   ipcMain.handle('customize:check-updates', () => manualUpdateCheck('customize'));
   ipcMain.handle('customize:restart-to-update', () => (updater ? updater.restartToUpdate('customize') : false));
   ipcMain.handle('customize:release-notes', () => {
+    openNotes('customize');
+    return true;
+  });
+  ipcMain.handle('notes:get', () => ({ current: app.getVersion(), releases: releaseNotes(), update: updateStatus() }));
+  ipcMain.on('notes:github', () => {
     const st = updateStatus();
-    const url = st.version ? st.releaseUrl : `https://github.com/serthekk/water_pet/releases`;
+    const url = st.version ? st.releaseUrl : 'https://github.com/serthekk/water_pet/releases';
     if (updater) updater.openReleasePage(url);
     else if (require('./updater.js').isAllowedReleaseUrl(url)) shell.openExternal(url);
-    return true;
   });
   ipcMain.handle('customize:set-global', (_e, catId, partial) => {
     const p = {};
@@ -2612,7 +2941,7 @@ async function runSelftest() {
     const ready = await waitFor((r) => r.type === 'ready', 10000);
     record('renderer-ready', !!ready, ready ? 'preload api + DOM ok' : 'no ready report (preload or renderer broken)');
     if (!ready) return finish();
-    record('single-window', BrowserWindow.getAllWindows().length === 1, `windows=${BrowserWindow.getAllWindows().length}`);
+    record('single-window', appWindows().length === 1, `windows=${appWindows().length}`);
     record('window-size', win.getBounds().width === WIN_W && win.getBounds().height === WIN_H, JSON.stringify(win.getBounds()));
 
     // Audio: every style decoded, every style plays, clean files
@@ -2712,13 +3041,44 @@ async function runSelftest() {
     await click(cx, cy, 'right');
     await sleep(400);
     record('context-menu (right-click)', ctxShown, ctxShown ? 'context-menu event received' : 'no context-menu event');
-    if (contextMenu) contextMenu.closePopup(win);
-    await sleep(150);
+    // our own themed menu window opens by the cursor with every item
+    const menuUp = await waitFor((r) => r.type === 'menu:shown', 4000);
+    await sleep(200);
+    const mwc = menuWin && !menuWin.isDestroyed() ? menuWin.webContents : null;
+    const mInfo = mwc ? await mwc.executeJavaScript(`({ rows: document.querySelectorAll('.item').length, title: (document.querySelector('.item.title .label') || {}).textContent,
+      bg: getComputedStyle(document.getElementById('menu')).backgroundColor })`) : null;
+    record('themed menu opens on right-click (own window, cat name on top)', !!menuUp && !!menuShown && menuWin.isVisible() && !!mInfo && mInfo.rows >= 15
+      && mInfo.title === `${settings.catName} ${GENDER_SYMBOL[settings.catGender] || ''}`.trim(), JSON.stringify(mInfo));
     record('right-click does not add cup', day.cups === 1, `cups=${day.cups}`);
-    const undoItem = buildContextMenu().items.find((i) => i.label === 'Undo last cup');
-    undoItem.click();
-    await sleep(100);
-    record('undo (menu item)', day.cups === 0, `cups=${day.cups}`);
+    // pick "Undo last cup" in the menu page (the real path: page -> main -> item)
+    if (mwc) await mwc.executeJavaScript(`[...document.querySelectorAll('.item')].find((r) => r.textContent.includes('Undo last cup')).click()`);
+    await sleep(300);
+    record('undo (picked in the menu) + the menu closes', day.cups === 0 && !menuShown && !menuWin.isVisible(), `cups=${day.cups} open=${!!menuShown}`);
+    // a submenu opens in place and the menu grows to fit it
+    clearReports();
+    await click(cx, cy, 'right');
+    await waitFor((r) => r.type === 'menu:shown', 4000);
+    await sleep(250);
+    record('menu opens again after it was closed', !!menuShown && menuShown.x !== null && menuWin.isVisible());
+    const h0 = menuWin.getBounds().height;
+    await mwc.executeJavaScript(`[...document.querySelectorAll('.item')].find((r) => r.textContent.includes('Sleeping spot')).click()`);
+    await sleep(250);
+    record('menu: submenu opens in place (window grows)', menuWin.getBounds().height > h0, `${h0} -> ${menuWin.getBounds().height}`);
+    // clicking the cat (which never takes focus) closes the menu
+    onOsLeftDown();
+    record('menu closes when the cat is clicked', !menuShown && !menuWin.isVisible());
+    // Esc closes it, theme colours reach it
+    clearReports();
+    await click(cx, cy, 'right');
+    await waitFor((r) => r.type === 'menu:shown', 4000);
+    applySettings({ theme: 'lavender' });
+    await sleep(200);
+    const lav = await mwc.executeJavaScript(`getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()`);
+    record('theme reaches the menu', lav === Themes.get('lavender').vars.bg, lav);
+    applySettings({ theme: 'cream' });
+    await mwc.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`);
+    await sleep(200);
+    record('menu closes on Esc', !menuShown && !menuWin.isVisible());
 
     // 3. Drag: real mouse press/release into the page; the OS cursor is substituted
     //    (fakeCursor) so the test never moves the user's mouse. The page gets NO
@@ -2786,7 +3146,7 @@ async function runSelftest() {
       const lp = Buffer.alloc(8);
       lp.writeUInt32LE((0x0201 << 16) | 0x0001, 0);
       record('WM_MOUSEACTIVATE lParam -> WM_LBUTTONDOWN', ((lp.readUInt32LE(0) >>> 16) & 0xffff) === 0x0201);
-      record('page reported hit areas to main', !!(hitRects && hitRects.pet && hitRects.grip && hitRects.buttons.length === 4), JSON.stringify(hitRects));
+      record('page reported hit areas to main', !!(hitRects && hitRects.pet && hitRects.grip && hitRects.buttons.length === 5), JSON.stringify(hitRects));
       const cupsS = day.cups;
       fakeCursor = { x: winAt().x + cx, y: winAt().y + cy };
       onOsLeftDown(); // what the WM_MOUSEACTIVATE hook does
@@ -2858,6 +3218,10 @@ async function runSelftest() {
     record('hide button', !win.isVisible() && day.cups === 0, `visible=${win.isVisible()} cups=${day.cups}`);
     settings.quietStart = '00:00';
     settings.quietEnd = '00:00'; // no quiet hours for this check
+    // no alarms either: after 22:00 tick() would also ring the default pill alarm,
+    // and its bubble would replace the water reminder these checks look at
+    const keepAlarms = settings.alarms;
+    settings.alarms = [];
     nextReminderAt = 0;
     tick();
     const hiddenBubble = await waitFor((r) => r.type === 'bubble' && r.data.shown, 2000);
@@ -2934,6 +3298,8 @@ async function runSelftest() {
     record('cup from tray/hotkey also ends it', !!trayHide && !nagging, trayHide ? JSON.stringify(trayHide.data) : 'no hide');
     undoCup('selftest');
 
+    settings.alarms = keepAlarms; // alarms back (sections 4-7 ran without them)
+
     // 8. Data files
     day = { date: '2000-01-01', cups: 5, pets: { gargorl: { today: 3, total: 40 }, other: { today: 2, total: 9 } } };
     checkDayRollover();
@@ -2985,6 +3351,35 @@ async function runSelftest() {
       const previewInk = await swc.executeJavaScript(`(() => { const c = document.getElementById('preview'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n; })()`);
       const hasCustomizeBtn = await swc.executeJavaScript(`!!document.getElementById('open-customize') && !document.getElementById('breed')`);
       record('Settings: look preview + "Customize cat…" button (look editing moved)', previewInk > 500 && hasCustomizeBtn, `previewPixels=${previewInk}`);
+      const layout = await swc.executeJavaScript(`({ slider: !!document.getElementById('catSize'), tools: document.querySelectorAll('#toolbar button[data-tip]').length,
+        tips: document.querySelectorAll('.tip-host .tip').length, themes: document.querySelectorAll('#themes .theme').length })`);
+      record('Settings: no size slider; quick-action toolbar, ? tips and colour themes', !layout.slider && layout.tools === 6 && layout.tips >= 8 && layout.themes === Themes.IDS.length, JSON.stringify(layout));
+      clearReports();
+      await swc.executeJavaScript(`document.querySelector('#themes .theme[data-theme="harvest"]').click()`);
+      await waitFor((r) => r.type === 'settings:saved' && r.data.partial.theme === 'harvest', 3000);
+      await sleep(150);
+      const themed = await swc.executeJavaScript(`({ bg: getComputedStyle(document.body).backgroundColor, active: document.querySelector('#themes .theme.active').dataset.theme })`);
+      record('Settings: picking a colour theme saves it and recolours the window', settings.theme === 'harvest' && readJsonSafe(settingsFile(), {}).theme === 'harvest'
+        && themed.bg === 'rgb(251, 238, 221)' && themed.active === 'harvest', JSON.stringify(themed));
+      applySettings({ theme: 'cream' });
+      // toolbar: What's new -> the notes window (friendly notes from release-notes.json)
+      clearReports();
+      await swc.executeJavaScript(`document.querySelector('#toolbar [data-action="notes"]').click()`);
+      const nr = await waitFor((r) => r.type === 'notes:ready', 6000);
+      await sleep(150);
+      const notesInfo = notesWin ? await notesWin.webContents.executeJavaScript(`({ sections: document.querySelectorAll('.release').length, current: !!document.querySelector('.release.current'), sub: document.getElementById('current').textContent })`) : null;
+      record("What's new window: notes per version, this version marked", !!nr && nr.data.current === app.getVersion() && nr.data.releases.includes(app.getVersion())
+        && !!notesInfo && notesInfo.current && notesInfo.sections >= 2, JSON.stringify(notesInfo));
+      if (notesWin) notesWin.close();
+      await sleep(300);
+      // toolbar: sleep + wake
+      await swc.executeJavaScript(`document.querySelector('#toolbar [data-action="sleep"]').click()`);
+      await sleep(300);
+      const slept = behavior.state === 'sleeping';
+      await swc.executeJavaScript(`document.querySelector('#toolbar [data-action="sleep"]').click()`);
+      await sleep(300);
+      record('Settings toolbar: 💤 puts the cat to sleep, again wakes her', slept && behavior.state !== 'sleeping', `slept=${slept} now=${behavior.state}`);
+      await sleep(4000); // let the wake-up stretch + the slide home finish before the next tests
 
       await setField('quietStart', '22:30');
       await waitFor((r) => r.type === 'settings:saved' && r.data.partial.quietStart === '22:30', 3000);
@@ -3010,10 +3405,17 @@ async function runSelftest() {
 
       buildContextMenu().items.find((i) => i.label === 'Settings…').click();
       await sleep(200);
-      record('settings is single window', BrowserWindow.getAllWindows().length === 2, `windows=${BrowserWindow.getAllWindows().length}`);
+      record('settings is single window', appWindows().length === 2, `windows=${appWindows().length}`);
       await swc.executeJavaScript(`document.getElementById('close').click()`);
       await sleep(500);
       record('settings close button (app keeps running)', !settingsWin && !!win && !win.isDestroyed());
+      // the ⚙ hover button on the cat opens Settings
+      clearReports();
+      await win.webContents.executeJavaScript(`document.getElementById('settings-btn').dispatchEvent(new MouseEvent('mouseup', { button: 0, bubbles: true }))`);
+      const hs = await waitFor((r) => r.type === 'settings:ready', 8000);
+      record('⚙ hover button on the cat opens Settings', !!hs && !!settingsWin);
+      if (settingsWin) settingsWin.close();
+      await sleep(300);
     }
 
     // 10. Rapid clicking: every meow plays, old ones fade (no hard cuts), every click counts
@@ -3233,6 +3635,9 @@ async function runSelftest() {
       if (late.getDate() === nowD.getDate() && old.getDate() === nowD.getDate()) {
         applySettings({ alarms: [...settings.alarms, { id: 't2', time: hhmmOf(late), text: 'Late one', enabled: true }, { id: 't3', time: hhmmOf(old), text: 'Too old', enabled: true }] });
         lastAlarmCheck = Date.now() - ALARM_LATE_MS; // like a fresh start
+        // the other alarms count as already rung today (late in the evening the default
+        // 22:00 pill alarm would otherwise be "missed" too and ring first)
+        for (const a of settings.alarms) if (!['t2', 't3'].includes(a.id)) alarmState[a.id] = todayKey();
         clearReports();
         tick();
         const lateB = await waitFor((r) => r.type === 'bubble' && r.data.shown && r.data.kind === 'alarm', 2000);
@@ -4176,11 +4581,11 @@ async function runSelftest() {
       const fb = infoWin.getBounds();
       record('info window flips to the left near the screen edge (never clipped)', fb.x + fb.width <= win.getBounds().x + 1 && fb.x >= area.x, JSON.stringify(fb));
       // only one at a time; reopening replaces it
-      const countBefore = BrowserWindow.getAllWindows().length;
+      const countBefore = appWindows().length;
       clearReports();
       openInfo('fainu', 'selftest');
       const f = await waitInfo();
-      record('only one info window; reopening replaces it (Fainu: "About")', BrowserWindow.getAllWindows().length === countBefore && !!f && f.data.label === 'About' && f.data.name === 'Fainu'
+      record('only one info window; reopening replaces it (Fainu: "About")', appWindows().length === countBefore && !!f && f.data.label === 'About' && f.data.name === 'Fainu'
         && /calico tornado/.test(f.data.description), f ? `${f.data.label} ${f.data.name}` : 'none');
       try { fs.writeFileSync(path.join(LOG_DIR, 'selftest-info-fainu.png'), (await infoWin.webContents.capturePage()).toPNG()); } catch (_) { /* ignore */ }
       // Esc closes it
@@ -4847,6 +5252,8 @@ app.whenReady().then(() => {
     startBehavior();
     initUpdater(); // only here, inside whenReady
     scheduleUpdatedBubble(existingUser);
+    // load the (hidden) menu window early so the first right-click opens it instantly
+    setTimeout(() => { if (!quitting) { ensureMenuWin(); ensureCatcher(); } }, 3000);
     if (SELFTEST) runSelftest();
     else applyLoginItem();
     screen.on('display-removed', reclamp);

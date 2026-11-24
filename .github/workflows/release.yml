@@ -71,7 +71,7 @@ jobs:
           if ((Get-Content "release/$feed" -Raw) -notmatch "(?m)^version: $([regex]::Escape($v))\s*$") { Write-Host "::error::release/$feed is not for version $v"; exit 1 }
           "list=$(($want | ForEach-Object { "release/$_" }) -join ' ')" >> $env:GITHUB_OUTPUT
 
-      - name: Publish the GitHub release (all files + generated notes, in one go)
+      - name: Publish the GitHub release (all files + release notes, in one go)
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,7 +82,11 @@ jobs:
           if ($LASTEXITCODE -eq 0) { Write-Host "::error::A release for $tag already exists. Delete it first (see RELEASING.md) or release a higher version."; exit 1 }
           # a beta (1.2.0-beta.1) is a GitHub pre-release: stable apps only look at "latest"
           $kind = if ($tag -match '-') { '--prerelease' } else { '--latest' }
-          gh release create $tag $files[0] $files[1] $files[2] $files[3] --repo $env:GITHUB_REPOSITORY --title $tag --generate-notes --verify-tag $kind
+          # the friendly notes from release-notes.json (the same ones the app's "What's new" shows)
+          $notes = node -e "const r=(JSON.parse(require('fs').readFileSync('release-notes.json','utf8')).releases||[]).find((x)=>x.version===process.argv[1]);if(r)process.stdout.write('## '+(r.title||'')+'\n\n'+r.items.map((i)=>'- '+(i.icon?i.icon+' ':'')+i.text).join('\n')+'\n')" $tag.TrimStart('v')
+          if (-not $notes) { Write-Host "::warning::release-notes.json has no entry for $tag - only GitHub's generated notes are used" }
+          Set-Content -Path release-notes.md -Value ($notes -join "`n") -Encoding utf8
+          gh release create $tag $files[0] $files[1] $files[2] $files[3] --repo $env:GITHUB_REPOSITORY --title $tag --notes-file release-notes.md --generate-notes --verify-tag $kind
           if ($LASTEXITCODE) { exit 1 }
 
       - name: Verify the published release

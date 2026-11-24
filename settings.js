@@ -150,21 +150,62 @@
     showStatus('Type a message to save it');
   });
 
-  // --- Size -----------------------------------------------------------------
-  const sizeIn = $('catSize');
-  const sizeLabel = () => { $('catSize-out').textContent = `${Math.round((Number(sizeIn.value) / 8) * 100)}%`; };
-  sizeIn.addEventListener('input', sizeLabel);
-  sizeIn.addEventListener('change', () => {
-    sizeLabel();
-    save({ catSize: Number(sizeIn.value) });
-  });
-
   $('mouseResize').addEventListener('change', (e) => save({ mouseResize: e.target.checked }));
   $('soundEnabled').addEventListener('change', (e) => save({ soundEnabled: e.target.checked }));
 
   // Name, colours, presets, tail + whiskers live in the Customize window.
   $('open-customize').addEventListener('click', () => api.openCustomize());
-  $('restart').addEventListener('click', () => api.restart());
+
+  // --- Quick-action toolbar -----------------------------------------------------
+  const ACTION_DONE = {
+    'test-reminder': 'Reminder sent - click the cat to stop it',
+    sleep: 'Good night 💤',
+    wake: 'Good morning ☀',
+    hide: 'Cat hidden - click the tray icon to bring her back',
+    show: 'Cat is back 🐾',
+  };
+  $('toolbar').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-action]');
+    if (!b) return;
+    const r = await api.action(b.dataset.action);
+    if (r && r.done && ACTION_DONE[r.done]) showStatus(ACTION_DONE[r.done]);
+    else if (r && r.error) showStatus(r.error, true);
+    if (r && r.state) fillToolbar(r.state);
+    api.report('action', { action: b.dataset.action, result: r });
+  });
+  function fillToolbar(st) {
+    const sleep = $('tb-sleep');
+    sleep.dataset.tip = st.asleep ? 'Wake the cat up' : 'Put the cat to sleep';
+    sleep.classList.toggle('on', !!st.asleep);
+    const hide = $('tb-hide');
+    hide.textContent = st.visible ? '🙈' : '🐱';
+    hide.dataset.tip = st.visible ? 'Hide the cat (the tray icon brings her back)' : 'Show the cat again';
+  }
+
+  // --- Colour themes ------------------------------------------------------------
+  const themesBox = $('themes');
+  function fillThemes(list, selected) {
+    if (!themesBox.children.length) {
+      for (const t of list) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'theme';
+        b.dataset.theme = t.id;
+        b.setAttribute('role', 'radio');
+        const sw = document.createElement('span');
+        sw.className = 'sw';
+        sw.style.background = `${t.vars.grad.replace(/^linear-gradient\(90deg/, 'linear-gradient(135deg')}`;
+        b.append(sw, document.createTextNode(t.label));
+        b.addEventListener('click', () => save({ theme: t.id }));
+        themesBox.appendChild(b);
+      }
+    }
+    themesBox.querySelectorAll('.theme').forEach((b) => {
+      const on = b.dataset.theme === selected;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', String(on));
+    });
+  }
 
   // Hints about the cat use the desktop cat's pronouns (she/her, he/him, they/them).
   const PRONOUNS = {
@@ -189,9 +230,9 @@
     fillPronouns(s.catGender);
     $('soundEnabled').checked = s.soundEnabled;
     $('mouseResize').checked = s.mouseResize;
-    sizeIn.value = s.catSize;
-    sizeLabel();
     fillAlarms(s.alarms);
+    if (s.themes) fillThemes(s.themes, s.theme);
+    if (s.catState) fillToolbar(s.catState);
     lastS = s;
     $('idleSleepEnabled').checked = s.idleSleepEnabled;
     $('idleSleepMinutes').value = s.idleSleepMinutes;

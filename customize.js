@@ -562,7 +562,7 @@
     patternSel.value = st.furPattern;
     const sizeR = document.querySelector(`input[name="size"][value="${st.catSize}"]`);
     document.querySelectorAll('input[name="size"]').forEach((r) => { r.checked = r === sizeR; });
-    $('size-note').textContent = sizeR ? '' : `(now ${Math.round((st.catSize / 8) * 100)}% - set in Settings)`;
+    $('size-note').textContent = sizeR ? '' : `(now ${Math.round((st.catSize / 8) * 100)}% - drag the cat's corner to fine-tune)`;
     fillEditor();
     drawPreview();
     refreshActivePreset();
