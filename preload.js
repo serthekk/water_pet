@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('api', {
   quitApp: () => ipcRenderer.send('quit-app'),
   restartApp: () => ipcRenderer.send('restart-app'),
   openSettings: () => ipcRenderer.send('open-settings'),
+  eatTreat: () => ipcRenderer.send('eat-treat'), // Stage 10
   resizeStart: () => ipcRenderer.send('resize-start'),
   resizeStep: (dir) => ipcRenderer.send('resize-step', dir),
   report: (type, data) => ipcRenderer.send('report', String(type), data),

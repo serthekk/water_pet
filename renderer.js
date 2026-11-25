@@ -13,6 +13,7 @@
   const quitBtn = document.getElementById('quit-btn');
   const restartBtn = document.getElementById('restart-btn');
   const settingsBtn = document.getElementById('settings-btn');
+  const treatBtn = document.getElementById('treat-btn'); // Stage 10
   const grip = document.getElementById('resize-grip');
 
   const BUBBLE_MS = 10000;
@@ -46,6 +47,7 @@
     if (typeof s.sound === 'boolean') soundOn = s.sound;
     if (typeof s.cupChirp === 'boolean') cupChirp = s.cupChirp;
     if (typeof s.hat === 'boolean' && s.hat !== hatOn) { hatOn = s.hat; redrawNow(); }
+    if (typeof s.treat === 'boolean' && s.treat !== !treatBtn.hidden) showTreat(s.treat);
     if (typeof s.mood === 'string' && s.mood !== moodNow) { moodNow = s.mood; window.__mood = moodNow; redrawNow(); }
     countEl.textContent = `${s.cups} / ${s.goal} ${s.word || 'cups'}`;
     if (s.drink && s.drink !== shownDrink) showDrink(s.drink);
@@ -92,6 +94,7 @@
     Object.assign(zzz.style, { left: `${Math.round(canvasLeft + 7.75 * cell)}px`, top: `${Math.round(SPRITE_TOP + 4.25 * cell)}px` });
     drawn = null;
     lastBox = null;
+    if (typeof treatBtn !== 'undefined' && treatBtn && !treatBtn.hidden) placeTreat();
   }
   const g = cat.getContext('2d');
   let look = { ...S.PRESETS.gargorl, breed: 'gargorl', tail: true, whiskers: true }; // until main's state arrives
@@ -136,6 +139,7 @@
     g.fillStyle = (look.colors && look.colors.whiskers) || '#d9dbe0';
     for (const [px, py, t] of S.whiskerSquares(scene.whiskers, CELL)) g.fillRect(px, py, t, t);
     paint(scene.over); // spot front + her paw / tail over the edge
+    drawKitten(pose, frame, opts); // Stage 10
     // the name tag (Stage 8): her initial on the tag
     if (scene.tag && scene.tag.text) {
       const t = scene.tag;
@@ -174,6 +178,56 @@
     bubble.style.top = `${countTop - 4}px`;
     // z z z: over her head, above the counter (never on top of the bowl / numbers)
     Object.assign(zzz.style, { left: `${Math.round(box.x + 6)}px`, top: `${Math.max(0, countTop - 40)}px` });
+  }
+
+  // --- Stage 10: the fish treat + the kitten -----------------------------------------------
+  const FISH = { grid: ['..KKKK....', '.KOOOOK.KK', 'KEOOOoOKoK', '.KOOOoK.KK', '..KKKK....'], colors: { K: '#3b2f2f', O: '#ff9a3c', o: '#e07a1f', E: '#2b1d14' } };
+  function showTreat(on) {
+    treatBtn.hidden = !on;
+    if (on) placeTreat();
+    sendHitRects(); // main must know where it is (presses Windows swallows)
+    api.report('treat', { shown: !!on });
+  }
+  function placeTreat() {
+    const sc = Math.max(2, Math.round(CELL / 2));
+    const cv = document.getElementById('treat-cv');
+    cv.width = FISH.grid[0].length * sc;
+    cv.height = FISH.grid.length * sc;
+    const tg = cv.getContext('2d');
+    tg.imageSmoothingEnabled = false;
+    FISH.grid.forEach((row, y) => [...row].forEach((ch, x) => {
+      if (ch === '.') return;
+      tg.fillStyle = FISH.colors[ch];
+      tg.fillRect(x * sc, y * sc, sc, sc);
+    }));
+    // on the floor to her left (outside her hit area; it may sit in front of the kitten)
+    Object.assign(treatBtn.style, { left: `${Math.round(canvasLeft + 4 * CELL - cv.width / 2)}px`, top: `${Math.round(SPRITE_TOP + S.CANVAS.rows * CELL - cv.height - 2)}px` });
+  }
+  // The kitten: drawn small in the free space to the cat's left, copying what she does.
+  // Hidden while she walks / crouches / pounces or sleeps on a spot (no room there).
+  function drawKitten(pose, frame, opts) {
+    const k = look.kitten;
+    window.__kitten = null;
+    if (!k || opts.spot) return;
+    let kp = 'sit';
+    let kf = frame === 'blink' ? 'blink' : frame === 'squint' ? 'squint' : 'sit';
+    let room = 8 * CELL; // left of the sitting cat
+    let kc = Math.max(2, Math.round(CELL / 3));
+    if (pose === 'sleep') { kp = 'sleep'; kf = 'a'; room = 5 * CELL; kc = Math.max(2, Math.floor(CELL / 4)); }
+    else if (['walk', 'crouch', 'pounce'].includes(pose)) return;
+    const grid = S.render(kp, kf, { ...k }, 1);
+    const bb = S.bbox(grid);
+    if (!bb) return;
+    while (kc > 2 && bb.w * kc > room - 2) kc -= 1;
+    if (bb.w * kc > room - 2) return;
+    const x0 = Math.round(room - 2 - bb.w * kc);
+    const y0 = cat.height - bb.h * kc;
+    grid.forEach((row, y) => row.forEach((col, x) => {
+      if (!col) return;
+      g.fillStyle = col;
+      g.fillRect(x0 + (x - bb.x) * kc, y0 + (y - bb.y) * kc, kc, kc);
+    }));
+    window.__kitten = { pose: kp, kc, x: x0, w: bb.w * kc }; // selftest
   }
 
   function stopFrames() {
@@ -280,6 +334,9 @@
     yawn: [['yawn', 'yawn', 1100], ['sit', 'blink', 180], ['sit', 'sit', 200]],
     groom: [...Array.from({ length: 10 }, (_, i) => ['groom', i % 2 ? 'b' : 'a', 260]), ['sit', 'blink', 180]],
     look: [['sit', 'sit', 800, { lookDx: -1 }], ['sit', 'blink', 140, { lookDx: -1 }], ['sit', 'sit', 900, { lookDx: 1 }], ['sit', 'sit', 500, { lookDx: 0 }]],
+    // Stage 10
+    knead: Array.from({ length: 10 }, (_, i) => ['knead', i % 2 ? 'b' : 'a', 320]),
+    chomp: [['yawn', 'yawn', 150], ['sit', 'squint', 150], ['yawn', 'yawn', 150], ['sit', 'squint', 150], ['yawn', 'yawn', 150], ['sit', 'squint', 900]],
     tailcurl: [['sit', 'wag', 600], ['sit', 'sit', 450], ['sit', 'wag', 900], ['sit', 'sit', 300], ['sit', 'wag', 400], ['sit', 'sit', 200]],
   };
   function playAnim(name, a = {}) {
@@ -290,6 +347,7 @@
     if (!steps) return;
     anim = name;
     api.report('anim', { name, spot: a.spot });
+    if (name === 'knead') purrFor(3.2, true); // making biscuits: a soft purr
     sequence(steps, true);
   }
 
@@ -502,7 +560,7 @@
     };
     const n = S.noseRect(reportedPose);
     const nose = n && { x: canvasLeft + n.x * CELL, y: SPRITE_TOP + n.y * CELL, width: n.w * CELL, height: n.h * CELL };
-    api.hitRects({ pet: r(pet), grip: r(grip), buttons: [resetBtn, hideBtn, restartBtn, quitBtn, settingsBtn].map(r), nose });
+    api.hitRects({ pet: r(pet), grip: r(grip), buttons: [resetBtn, hideBtn, restartBtn, quitBtn, settingsBtn, treatBtn].map(r), nose });
   }
 
   // --- petting (Stage 3) ----------------------------------------------------
@@ -850,6 +908,11 @@
 
   api.onPetted((p) => {
     const waking = anim === 'wake'; // petted awake: let her stretch out of her spot first
+    if (p.kind === 'treat') { // Stage 10: she ate the fish (main plays 'chomp')
+      hearts(5);
+      purrFor(2.4, p.quiet);
+      return;
+    }
     if (p.kind === 'streak') { // Stage 9 milestone: hearts only (main shows the bubble)
       hearts(6);
       return;
@@ -907,6 +970,7 @@
     'restart-btn': () => api.restartApp(),
     'quit-btn': () => api.quitApp(),
     'settings-btn': () => api.openSettings(),
+    'treat-btn': () => api.eatTreat(), // Stage 10: feed her the fish
   };
   window.addEventListener('mouseup', async (e) => {
     if (e.button !== 0) return;

@@ -46,6 +46,7 @@
   const cat = { x: 0, y: 0, yOff: 0, facing: 1, state: 'drop', t: 0, frameT: 0, frame: 'a', box: null, catches: 0 };
   const toy = { x: 0, y: 0, vx: 0, vy: 0, w: 0, h: 0, grabbed: false, trail: [], wob: 0, wander: 0 };
   const pointer = { x: -1, y: -1, inside: false, hist: [] };
+  const kit = { x: 0, frame: 'a', t: 0, facing: 1 }; // Stage 10: the kitten trails her
   let hearts = []; // { x, y, t }
   let timer = null;
   let dirty = []; // rects drawn last frame (cleared next frame)
@@ -128,6 +129,7 @@
     toy.vy = 0;
     toy.trail = [];
     toy.grabbed = false;
+    kit.x = cat.x - 8 * cell;
     hearts = [];
     dirty = [];
     g.clearRect(0, 0, W, H);
@@ -303,6 +305,28 @@
       const hb = sc.hatBox;
       const top = hb ? Math.min(bb ? bb.y : hb.y, hb.y) : bb ? bb.y : 0;
       if (bb) dirty.push({ x: ox + Math.min(bb.x, hb ? hb.x : bb.x) * cell - cell * 2, y: oy + top * cell - cell, w: (bb.w + 6) * cell, h: (S.CANVAS.rows - top + 1) * cell });
+      // the kitten (Stage 10): trots after her and sits a little behind her
+      if (look.kitten) {
+        const kc = Math.max(2, Math.round(cell / 3));
+        const centre = cat.box ? cat.box.x + cat.box.w / 2 : cat.x + 15 * cell;
+        const target = centre - cat.facing * 13 * cell;
+        const gap = target - kit.x;
+        const moving = Math.abs(gap) > 3 * kc;
+        if (moving) {
+          kit.facing = gap > 0 ? 1 : -1;
+          kit.x += Math.sign(gap) * Math.min(Math.abs(gap), 3.2);
+          kit.t += 33;
+          if (kit.t > 120) { kit.t = 0; kit.frame = { a: 'b', b: 'c', c: 'd', d: 'a' }[kit.frame]; }
+        }
+        const kg = S.render(moving ? 'walk' : 'sit', moving ? kit.frame : 'sit', look.kitten, moving ? kit.facing : 1);
+        const kb = S.bbox(kg);
+        if (kb) {
+          const kx = Math.round(kit.x - (kb.w * kc) / 2);
+          const ky = H - kb.h * kc;
+          kg.forEach((row, y) => row.forEach((col, x) => { if (col) { g.fillStyle = col; g.fillRect(kx + (x - kb.x) * kc, ky + (y - kb.y) * kc, kc, kc); } }));
+          dirty.push({ x: kx, y: ky, w: kb.w * kc, h: kb.h * kc });
+        }
+      }
       // the toy
       const grid = toyCells(toyKind);
       const wob = toyKind === 'fish' ? Math.round(Math.sin(toy.wob) * 2) : 0;

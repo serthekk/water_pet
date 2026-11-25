@@ -104,6 +104,9 @@
     return e;
   }
   const SIT_BLINK = setCells(SIT, eyeEdits('blink'));
+  // Kneading (Stage 10): blissful squint, one front paw up, then the other
+  const KNEAD_A = setCells(SIT, [...eyeEdits('squint'), [4, 17, 'S'], [5, 17, 'S'], [4, 16, 'D'], [5, 16, 'D']]);
+  const KNEAD_B = setCells(SIT, [...eyeEdits('squint'), [10, 17, 'S'], [11, 17, 'S'], [10, 16, 'D'], [11, 16, 'D']]);
   const SIT_SQUINT = setCells(SIT, eyeEdits('squint'));
   const YAWN = setCells(SIT, [
     ...eyeEdits('squint'),
@@ -278,9 +281,11 @@
     pounce: { a: POUNCE },
     stretch: { yawn: YAWN, tall: STRETCH_TALL },
     scratch: { a: scratchRows(12), b: scratchRows(14) },
+    knead: { a: KNEAD_A, b: KNEAD_B },
   };
   const LAYOUT = {
     sit: { col: 7, face: [7.5, 9], whiskers: 'sit' },
+    knead: { col: 7, face: [7.5, 9], whiskers: 'sit' },
     yawn: { col: 7, face: [7.5, 9], whiskers: 'sit' },
     groom: { col: 7, face: [7.5, 9], whiskers: 'groom' },
     stretch: { col: 7, face: [7.5, 9], whiskers: 'sit' },
@@ -360,6 +365,9 @@
     mainecoon: { label: 'Maine Coon', ...P({ furBase: '#8b5a33', furShade: '#734a2a', muzzle: '#efe0c8', patchA: '#553520', outline: '#2e2018', eyes: '#c2bb3a', earOuter: '#8b5a33', earInner: '#e0a0a8', nose: '#b86b6b', tail: '#8b5a33', paws: '#efe0c8', belly: '#efe0c8', cheeks: '#d9c2a0' }, { pattern: 'tabby', fluffy: true, tufts: true }) },
     scottishfold: { label: 'Scottish Fold', ...P({ furBase: '#bfc3cb', furShade: '#a9adb6', muzzle: '#eef0f3', patchA: '#8e939d', outline: '#3a3d45', eyes: '#e6a23c', earOuter: '#bfc3cb', earInner: '#e8b0bb', nose: '#d4919c', tail: '#bfc3cb', paws: '#eef0f3', belly: '#eef0f3', cheeks: '#e6c9cf' }, { pattern: 'tabby', ears: 'fold' }) },
     persian: { label: 'Persian', ...P({ furBase: '#f5ede2', furShade: '#e6dccd', muzzle: '#fffdf9', outline: '#5a4a46', eyes: '#d97f2e', earOuter: '#f5ede2', earInner: '#f1b8c1', nose: '#e89aa6', tail: '#f5ede2', paws: '#fffdf9', belly: '#fffdf9', cheeks: '#f6cdd3' }, { ears: 'small', fluffy: true }) },
+    // Stage 10 unlockables (see UNLOCKS)
+    rainbow: { label: 'Rainbow', unlock: true, ...P({ furBase: '#f7b2c8', furShade: '#e897b2', muzzle: '#fff1f6', patchA: '#9fd8f7', patchB: '#fff0a0', outline: '#5a3a5a', eyes: '#b07bff', earOuter: '#f7b2c8', earInner: '#fff0a0', nose: '#ff6b8b', mouth: '#7a3a5a', tail: '#9fd8f7', paws: '#fff0a0', belly: '#fff1f6', cheeks: '#ffb0c8', whiskers: '#ffffff' }, { pattern: 'calico' }) },
+    galaxy: { label: 'Galaxy', unlock: true, ...P({ furBase: '#2e2450', furShade: '#231b3e', muzzle: '#4a3a7a', patchA: '#5b3fa0', patchB: '#f2f0ff', outline: '#120e22', eyes: '#5fd3ff', earOuter: '#2e2450', earInner: '#b07bff', nose: '#ff6bd0', mouth: '#5a3a7a', tail: '#5b3fa0', paws: '#4a3a7a', belly: '#3a2e62', cheeks: '#7a5ab0', whiskers: '#d0c8ff' }, { pattern: 'spots' }) },
   };
   // Each look comes with its own description (used for cats without a hand-written one).
   // {They}/{they}/{them}/{their}/{s} are filled with the cat's pronouns.
@@ -372,6 +380,8 @@
     graytabby: 'A gray tabby with stripes for days, curious about every cupboard and every crinkly bag.',
     siamese: 'A chatty Siamese with blue eyes. {They} will tell you all about {their} day, at length.',
     tuxedo: 'Dressed for a gala at all times: a dapper tuxedo cat with white mittens.',
+    rainbow: 'A pastel rainbow cat, earned with two weeks of good sips. {They} leave{s} a little sparkle wherever {they} nap{s}.',
+    galaxy: 'A cat made of night sky, with stars in {their} fur. Earned with 25 goals reached.',
     british: 'A round-faced British Shorthair. Calm, chunky and very serious about cushions.',
     ragdoll: 'A fluffy Ragdoll who goes limp in your arms. Blue eyes, big heart, zero bones.',
     mainecoon: 'A gentle giant with tufted ears and a lion\'s ruff. {They} purr{s} like a tractor.',
@@ -696,7 +706,7 @@
   // (h = horizontal band, v = vertical band, len cells).
   const SIT_ANCH = { head: [14.5, 12], earR: [19, 10], eyes: [14.5, 16, false], neck: [14.5, 20, 'h', 10] };
   const ANCHORS = {
-    sit: SIT_ANCH, yawn: SIT_ANCH, groom: SIT_ANCH, scratch: SIT_ANCH,
+    sit: SIT_ANCH, yawn: SIT_ANCH, groom: SIT_ANCH, scratch: SIT_ANCH, knead: SIT_ANCH,
     'stretch/yawn': SIT_ANCH,
     'stretch/tall': { head: [14.5, 11], earR: [19, 9], eyes: [14.5, 15, false], neck: [14.5, 19, 'h', 10] },
     belly: { head: [7.5, 18], earR: [8, 17], eyes: [7.5, 21, 'small'], neck: [11, 21.5, 'v', 4] },
@@ -715,6 +725,23 @@
     bandana: { label: 'Bandana', slot: 'neck', colors: { a: '#d6457a', b: '#ffffff' } },
     bell: { label: 'Bell collar', slot: 'neck', colors: { a: '#c0392b', b: '#ffd23f' } },
     nametag: { label: 'Collar with name tag', slot: 'neck', colors: { a: '#5fb4e8', b: '#ffd23f' } },
+    // Stage 10 unlockables (see UNLOCKS)
+    heartglasses: { label: 'Heart glasses', slot: 'eyes', unlock: true, colors: { a: '#ff5fa2', b: '#ffb0cf' } },
+    flowercrown: { label: 'Flower crown', slot: 'head', unlock: true, colors: { a: '#ff7eb3', b: '#ffd23f', c: '#6aa84f' } },
+    goldcrown: { label: 'Gold crown', slot: 'head', unlock: true, colors: { a: '#f2c230', b: '#e0245e', c: '#3b82f6' } },
+  };
+  // Stage 10: what unlocks what (streak = days in a row, goals = days the goal was reached).
+  const UNLOCKS = {
+    heartglasses: { kind: 'accessory', label: 'Heart glasses', streak: 7 },
+    flowercrown: { kind: 'accessory', label: 'Flower crown', goals: 10 },
+    rainbow: { kind: 'preset', label: 'Rainbow fur', streak: 14 },
+    kitten: { kind: 'kitten', label: 'Kitten companion', streak: 14 },
+    galaxy: { kind: 'preset', label: 'Galaxy fur', goals: 25 },
+    goldcrown: { kind: 'accessory', label: 'Gold crown', streak: 30 },
+  };
+  const unlockText = (id) => {
+    const u = UNLOCKS[id];
+    return !u ? '' : u.streak ? `a ${u.streak}-day streak` : `reaching your goal ${u.goals} times`;
   };
   const SEASONAL = {
     santa: { label: 'Santa hat', slot: 'head', colors: { a: '#d32f2f', b: '#ffffff' } },
@@ -773,6 +800,11 @@
     glassesSide: ['..aaa', 'aaa.a', '..aaa'],
     sunglassesSide: ['..aaa', 'aaaba', '..aaa'],
     glassesSmall: ['aaaaaa', 'a.aa.a', 'aaaaaa'], // the smaller face when lying down
+    heartglassesFront: ['aa.aa..aa.aa', 'abbbaaaabbba', 'abbba..abbba', '.aba....aba.', '..a......a..'],
+    heartglassesSide: ['..aa.', 'aaaba', '..ba.'],
+    heartglassesSmall: ['a.aa.a', 'abaaba', '.a..a.'],
+    flowercrown: ['.a..b..a.', 'awa.bwbaw', 'ccccccccc'],
+    goldcrown: ['a..a..a', 'aa.a.aa', 'aaaaaaa', 'abacaba', 'aaaaaaa'],
     sunglassesSmall: ['aaaaaa', 'abaaba', 'aaaaaa'],
     santa: ['.....bb', '....aab', '...aaa.', '..aaaa.', '.aaaaa.', 'bbbbbbb'],
     witch: ['....K....', '....a....', '...aaa...', '...bbb...', '..aaaaa..', 'aaaaaaaaa'],
@@ -858,7 +890,7 @@
       stamp(ITEM_GRIDS.heartpin, SEASONAL.heartpin.colors, Math.round(px - 1), Math.round(py));
     }
     // eyes
-    for (const id of ['glasses', 'sunglasses']) {
+    for (const id of ['glasses', 'sunglasses', 'heartglasses']) {
       if (!on(id)) continue;
       const [ex, ey, side] = A.eyes;
       const grid = ITEM_GRIDS[`${id}${side === 'small' ? 'Small' : side ? 'Side' : 'Front'}`];
@@ -869,6 +901,8 @@
     if (!headBlocked) {
       const [hx, hy] = A.head;
       if (on('crown')) stamp(ITEM_GRIDS.crown, colorsOf('crown'), Math.round(hx - 3), hy - 3);
+      if (on('goldcrown')) stamp(ITEM_GRIDS.goldcrown, colorsOf('goldcrown'), Math.round(hx - 3), hy - 4);
+      if (on('flowercrown')) stamp(ITEM_GRIDS.flowercrown, colorsOf('flowercrown'), Math.round(hx - 4), hy - 2);
       const s = o.seasonal && SEASONAL[o.seasonal] && SEASONAL[o.seasonal].slot === 'head' ? o.seasonal : null;
       if (s) {
         const grid = ITEM_GRIDS[SEASONAL_GRID[s]];
@@ -951,7 +985,8 @@
   const api = {
     CANVAS, PARTS, PRESETS, PATTERNS, GARGORL,
     POSES: Object.fromEntries(Object.entries(FRAMES).map(([p, f]) => [p, Object.keys(f)])),
-    presetList: () => Object.entries(PRESETS).map(([id, p]) => ({ id, label: p.label, description: p.description || '' })),
+    presetList: () => Object.entries(PRESETS).map(([id, p]) => ({ id, label: p.label, description: p.description || '', unlock: !!p.unlock })),
+    UNLOCKS, unlockText,
     render, renderProp, hatPlace, bbox, validate,
     ACCESSORIES, SEASONAL, ACC_IDS, SEASONAL_IDS, cleanAccessories, seasonalFor, accessoryCells, easterSunday, whiskerLines, whiskerSquares, noseRect,
     renderScene, spotCells, SPOT_IDS, SPOT_PARTS, SPOT_DEFAULT_COLORS, SPOT_LABELS, SPOT_CAT, tailColor,

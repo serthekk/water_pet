@@ -193,3 +193,8 @@ footer { display: flex; align-items: center; justify-content: space-between; mar
 .acc-color input[type='text'] { width: 68px; font-family: Consolas, monospace; font-size: 12px; }
 .acc-color button { padding: 0 4px; }
 .check-row { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+/* Stage 10: still to unlock */
+.acc-list li.locked { opacity: 0.55; }
+.acc-lock { font-size: 11px; color: var(--muted); font-weight: 600; }
+.presets button.unlock-locked { opacity: 0.45; position: relative; }
+.presets button.unlock-locked::after { content: '🔒'; position: absolute; top: 2px; right: 3px; font-size: 11px; }

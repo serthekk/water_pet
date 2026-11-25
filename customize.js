@@ -560,7 +560,7 @@
   // ---- Accessories (Stage 8, per cat) --------------------------------------------------
   // One row per item: on/off + its colours (swatch, hex field, eyedropper). Saved for THIS cat.
   const accList = $('acc-list');
-  const COLOR_NAMES = { a: 'Colour', b: 'Second colour' };
+  const COLOR_NAMES = { a: 'Colour', b: 'Second colour', c: 'Third colour' };
   function accState() {
     return JSON.parse(JSON.stringify(st.accessories || {}));
   }
@@ -636,6 +636,17 @@
         if (document.activeElement !== inp) inp.value = v;
       });
     });
+    // Stage 10: items still to unlock are greyed out with how to earn them
+    const unlocks = Object.fromEntries((st.unlocks || []).map((u) => [u.id, u]));
+    accList.querySelectorAll('li').forEach((li) => {
+      const u = unlocks[li.dataset.acc];
+      const locked = !!(u && !u.unlocked);
+      li.classList.toggle('locked', locked);
+      li.querySelectorAll('input, button').forEach((el) => { el.disabled = locked; });
+      let note = li.querySelector('.acc-lock');
+      if (locked && !note) { note = document.createElement('span'); note.className = 'acc-lock'; li.appendChild(note); }
+      if (note) note.textContent = locked ? `🔒 unlocks at ${u.need}` : '';
+    });
     $('acc-who').textContent = pr().they;
     $('seasonalOutfits').checked = st.seasonalOutfits !== false;
   }
@@ -672,9 +683,23 @@
       el.disabled = locked;
     });
   }
+  // Stage 10: presets still to unlock: greyed out, "unlocks at ..." on hover
+  function lockUnlockables() {
+    const unlocks = Object.fromEntries((st.unlocks || []).map((u) => [u.id, u]));
+    presetsBox.querySelectorAll('button[data-preset]').forEach((b) => {
+      const u = unlocks[b.dataset.preset];
+      const locked = !!(u && !u.unlocked);
+      b.classList.toggle('unlock-locked', locked);
+      if (locked) {
+        b.disabled = true;
+        b.title = `🔒 ${u.label}: unlocks at ${u.need}`;
+      }
+    });
+  }
   $('catLookLocked').addEventListener('change', (e) => {
     queue({ catLookLocked: e.target.checked });
     applyLock();
+    lockUnlockables();
     showStatus(e.target.checked ? 'Look locked' : 'Look unlocked');
   });
 
@@ -693,6 +718,7 @@
     fillLook();
     fillMyPresets(s.customPresets || []);
     applyLock();
+    lockUnlockables();
     fillSleep();
     fillAccessories();
   }

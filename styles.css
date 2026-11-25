@@ -225,3 +225,9 @@ body.resizing #resize-grip { opacity: 1; pointer-events: auto; }
 
 /* Stage 9: a smaller reminder bubble while a fullscreen game is in front */
 #bubble.small { font-size: 11px; line-height: 13px; padding: 3px 7px; max-width: 160px; }
+
+/* Stage 10: the fish treat by her side (clickable; a near-invisible background so Windows sends it clicks) */
+#treat-btn { position: absolute; padding: 0; border: 0; background: rgba(0, 0, 0, 0.01); cursor: pointer; line-height: 0; }
+#treat-btn[hidden] { display: none; }
+#treat-btn canvas { image-rendering: pixelated; }
+#treat-btn:hover canvas { filter: drop-shadow(0 0 2px #fff6ea); }

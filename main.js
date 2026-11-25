@@ -140,6 +140,8 @@ const DEFAULT_SETTINGS = {
   remindersPausedUntil: 0, // ms timestamp; 0 = not paused
   eyesFollow: true, // Stage 7: her pupils follow the mouse
   moodEnabled: true, // Stage 9: ears / eyes / tail follow today's progress
+  unlockAllItems: false, // Stage 10: every unlockable at once (for testing)
+  kittenEnabled: true, // Stage 10: the kitten companion, once unlocked
   seasonalOutfits: true, // Stage 8: Santa hat in December, bunny ears at Easter, witch hat at Halloween, heart pin at Valentine's
   taskbarWalk: false, // Stage 7: now and then she strolls along the bottom of the screen
   chaseMouse: false,
@@ -509,7 +511,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
     const list = raw.customPresets.map((p) => p && sanitizeCustomPreset(p)).filter(Boolean);
     if (list.length === raw.customPresets.length) s.customPresets = list;
   }
-  for (const k of ['seasonalOutfits', 'moodEnabled', 'rotateReminders', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
+  for (const k of ['unlockAllItems', 'kittenEnabled', 'seasonalOutfits', 'moodEnabled', 'rotateReminders', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
   // older files: sleepWhenIdle / sleepAfterMinutes (old default 10 -> new default 15)
   if (typeof raw.idleSleepEnabled !== 'boolean' && typeof raw.sleepWhenIdle === 'boolean') s.idleSleepEnabled = raw.sleepWhenIdle;
   if (raw.idleSleepMinutes === undefined && Number.isInteger(raw.sleepAfterMinutes) && raw.sleepAfterMinutes !== 10) raw = { ...raw, idleSleepMinutes: Math.min(120, raw.sleepAfterMinutes) };
@@ -669,6 +671,7 @@ function editCat(id, partial) {
   const picked = {};
   for (const k of PER_CAT_KEYS) if (partial && k in partial) picked[k] = partial[k];
   lockRules(picked, flatFromProfile(settings.cats[i]), id);
+  unlockRules(picked); // Stage 10
   descriptionRules(picked, flatFromProfile(settings.cats[i]), id);
   if (typeof picked.breed === 'string' && BREED_IDS.includes(picked.breed) && !LOOK_KEYS.some((k) => k in picked)) {
     Object.assign(picked, presetSettings(picked.breed));
@@ -681,6 +684,7 @@ function editCat(id, partial) {
   saveSettings();
   log(`cat ${id} edited: ${Object.keys(picked).join(', ')}`);
   notifyCatsChanged();
+  if (id === 'kitten') lookChanged('kitten edited'); // she sits beside the desktop cat
   return settings.cats[i];
 }
 // Customize / Settings / tray follow any change to the cat list.
@@ -1062,7 +1066,7 @@ function saveSettings() {
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
   'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
-  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'reminderMessages', 'rotateReminders', 'meowCapMinutes', 'remindersPausedUntil', 'moodEnabled', 'seasonalOutfits'];
+  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'reminderMessages', 'rotateReminders', 'meowCapMinutes', 'remindersPausedUntil', 'moodEnabled', 'seasonalOutfits', 'unlockAllItems', 'kittenEnabled'];
 
 // For the Settings toolbar (Sleep / Wake, Hide / Show).
 function catState() {
@@ -1077,6 +1081,7 @@ function publicSettings() {
     missingStarters: missingStarters(),
     themes: Themes.list(settings.customTheme),
     customThemeLabels: Themes.CUSTOM_LABELS,
+    unlocks: unlockList(), // Stage 10
     drinks: Drinks.list(),
     catState: catState(),
     packaged: app.isPackaged, meowStyles: publicCatalog(), soundsFolder: userSoundsDir(), breeds: CatSprites.presetList(), defaultDescriptor: DEFAULT_SETTINGS.catDescriptor };
@@ -1130,6 +1135,7 @@ function applySettings(partial) {
   const picked = {};
   for (const k of EDITABLE) if (partial && k in partial) picked[k] = partial[k];
   lockRules(picked, settings, settings.activeCatId);
+  unlockRules(picked); // Stage 10
   descriptionRules(picked, settings, settings.activeCatId);
   // Choosing a preset applies its whole look; editing the look by hand makes it 'custom'.
   if (typeof picked.breed === 'string' && BREED_IDS.includes(picked.breed) && !LOOK_KEYS.some((k) => k in picked)) {
@@ -1162,6 +1168,11 @@ function applySettings(partial) {
   if (changed.includes('alarms')) alarmsEdited(prev.alarms);
   if (changed.includes('goalCups') && historyLoaded) recordDay(); // today's goal in the history
   if (changed.includes('theme') || (changed.includes('customTheme') && settings.theme === 'custom')) broadcastTheme();
+  if (changed.includes('unlockAllItems') || changed.includes('kittenEnabled')) {
+    if (isUnlocked('kitten')) ensureKitten();
+    lookChanged('unlocks / kitten');
+    notifyCatsChanged();
+  }
   if (changed.includes('taskbarWalk')) {
     if (!settings.taskbarWalk) endStroll('turned off');
     else behavior.nextStrollAt = Date.now() + 8000; // a first little walk soon
@@ -1261,7 +1272,7 @@ function pushState(extra = {}) {
   if (!win || win.isDestroyed()) return;
   win.webContents.send('state', {
     cups: day.cups, goal: settings.goalCups, volume: settings.volume, meowStyle: settings.meowStyle, sound: settings.soundEnabled,
-    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, hat: hatOn(), mood: catMood(), ...extra,
+    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, hat: hatOn(), mood: catMood(), treat: !!history.treatPending, ...extra,
   });
 }
 
@@ -1270,6 +1281,7 @@ let undoReset = null; // { date, cups }
 
 function addCup(source) {
   checkDayRollover();
+  const prevBest = history.bestStreak; // Stage 10: a new best streak earns a treat
   markActive('cup');
   undoReset = null;
   day.cups += 1;
@@ -1285,6 +1297,8 @@ function addCup(source) {
   // Stage 5: the first time today she reaches her goal -> party
   if (day.cups >= settings.goalCups && day.partyShownDate !== day.date) startParty('goal');
   maybeCelebrateStreak(); // Stage 9: 3 / 7 / 14 / 30 / 60 / 100 days
+  checkUnlocks('drink'); // Stage 10
+  maybeTreat(prevBest);
 }
 
 function undoCup(source) {
@@ -1326,6 +1340,7 @@ function pet(kind, source) {
     if (now - lastStrokePetAt < PET_COOLDOWN_MS) return { ok: false, reason: 'cooldown' };
     if (drag && drag.dragging) return { ok: false, reason: 'dragging' };
     lastStrokePetAt = now;
+    (behavior.strokePets = behavior.strokePets || []).push(now); // Stage 10: lots of pets -> maybe kneading
   } else if (kind === 'boop') {
     if (now - lastBoopAt < BOOP_MIN_MS) return { ok: false, reason: 'too fast' };
     lastBoopAt = now;
@@ -1344,6 +1359,7 @@ function pet(kind, source) {
   // (while she plays, the play overlay shows the hearts itself; the desktop cat is hidden)
   if (win && !win.isDestroyed() && !playWin) win.webContents.send('petted', { kind, quiet: isQuietNow() || wasAsleep, petsToday: pc.today, chirp: settings.cupChirp });
   pushState();
+  if (kind === 'stroke' && !playing()) maybeKnead();
   return { ok: true, petsToday: pc.today };
 }
 
@@ -1355,7 +1371,7 @@ function pet(kind, source) {
 const historyFile = () => path.join(dataDir(), 'history.json');
 const HISTORY_DAYS = 400;
 const STREAK_MILESTONES = [3, 7, 14, 30, 60, 100];
-let history = { days: {}, bestStreak: 0, celebrated: {} };
+let history = { days: {}, bestStreak: 0, celebrated: {}, unlocked: {}, treatPending: false, treatsGiven: 0, lastTreatDate: '' };
 const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function addDays(key, n) {
@@ -1372,9 +1388,15 @@ function loadHistory() {
   }
   const celebrated = {};
   if (raw.celebrated && typeof raw.celebrated === 'object') for (const [k, v] of Object.entries(raw.celebrated)) if (/^\d+$/.test(k) && DAY_KEY_RE.test(v)) celebrated[k] = v;
-  history = { days, bestStreak: nonNegInt(raw.bestStreak), celebrated };
+  const unlocked = {};
+  if (raw.unlocked && typeof raw.unlocked === 'object') for (const [k, v] of Object.entries(raw.unlocked)) if (CatSprites.UNLOCKS[k] && DAY_KEY_RE.test(v)) unlocked[k] = v;
+  history = {
+    days, bestStreak: nonNegInt(raw.bestStreak), celebrated, unlocked, // Stage 10
+    treatPending: raw.treatPending === true, treatsGiven: nonNegInt(raw.treatsGiven), lastTreatDate: DAY_KEY_RE.test(raw.lastTreatDate || '') ? raw.lastTreatDate : '',
+  };
   historyLoaded = true;
   recordDay(); // first run: today from cups.json
+  checkUnlocks('startup', { quiet: true }); // Stage 10
   log(`history loaded: ${Object.keys(days).length} day(s), streak ${streak()}, best ${history.bestStreak}`);
 }
 function recordDay() {
@@ -1415,6 +1437,118 @@ function maybeCelebrateStreak() {
     win.webContents.send('petted', { kind: 'streak', quiet: true });
   }
   return true;
+}
+
+// --- Rewards (Stage 10): unlockables, treats, kneading, the kitten -------------------
+// Unlocks (catsprite UNLOCKS) come from the best streak / the number of days the goal was
+// reached; once unlocked they stay (history.unlocked). unlockAllItems = everything (tests).
+const goalsReached = () => Object.keys(history.days).filter((k) => goalMet(k)).length;
+const isUnlocked = (id) => settings.unlockAllItems || !!(history.unlocked && history.unlocked[id]);
+function unlockList() {
+  return Object.keys(CatSprites.UNLOCKS).map((id) => ({ id, label: CatSprites.UNLOCKS[id].label, kind: CatSprites.UNLOCKS[id].kind, unlocked: isUnlocked(id), need: CatSprites.unlockText(id) }));
+}
+function checkUnlocks(source, { quiet = false } = {}) {
+  if (!history.unlocked || typeof history.unlocked !== 'object') history.unlocked = {};
+  const best = Math.max(history.bestStreak, streak());
+  const goals = goalsReached();
+  const fresh = [];
+  for (const [id, u] of Object.entries(CatSprites.UNLOCKS)) {
+    if (history.unlocked[id]) continue;
+    if ((u.streak && best >= u.streak) || (u.goals && goals >= u.goals)) {
+      history.unlocked[id] = todayKey();
+      fresh.push(id);
+    }
+  }
+  if (!fresh.length) return [];
+  writeJsonSafe(historyFile(), history);
+  log(`UNLOCKED (${source}): ${fresh.join(', ')} (best streak ${best}, goals ${goals})`);
+  if (fresh.includes('kitten')) ensureKitten();
+  const names = fresh.map((id) => CatSprites.UNLOCKS[id].label).join(' + ');
+  if (!quiet && win && !win.isDestroyed() && win.isVisible()) win.webContents.send('bubble-intro', { text: `🎁 Unlocked: ${names}! Find it in Customize`, kind: 'unlock' });
+  lookChanged('unlocked');
+  notifyCatsChanged();
+  return fresh;
+}
+// A locked preset can't be picked (the Customize button is greyed out too).
+function unlockRules(picked) {
+  const p = typeof picked.breed === 'string' && CatSprites.PRESETS[picked.breed];
+  if (p && p.unlock && !isUnlocked(picked.breed)) {
+    log(`preset ${picked.breed} is still locked (${CatSprites.unlockText(picked.breed)})`);
+    delete picked.breed;
+  }
+}
+// What she wears, minus anything still locked.
+function wornAccessories(acc) {
+  const out = {};
+  for (const [id, v] of Object.entries(acc || {})) out[id] = CatSprites.ACCESSORIES[id] && CatSprites.ACCESSORIES[id].unlock && !isUnlocked(id) ? { ...v, on: false } : v;
+  return out;
+}
+
+// Treats: when the goal is reached on a day that makes a 7-day streak (7, 14, 21...) or a
+// new best streak, a pixel fish appears by the cat (once a day). Clicking it feeds her:
+// chomp, happy purr, hearts; counted in history.treatsGiven. A waiting treat survives a restart.
+function maybeTreat(prevBest) {
+  const today = todayKey();
+  if (!goalMet(today) || history.lastTreatDate === today) return false;
+  const s = streak();
+  if (!(s > 0 && (s % 7 === 0 || s > prevBest))) return false;
+  history.treatPending = true;
+  history.lastTreatDate = today;
+  writeJsonSafe(historyFile(), history);
+  log(`TREAT appears (streak ${s}, best before ${prevBest})`);
+  pushState();
+  return true;
+}
+function eatTreat(source) {
+  if (!history.treatPending) return false;
+  history.treatPending = false;
+  history.treatsGiven = nonNegInt(history.treatsGiven) + 1;
+  writeJsonSafe(historyFile(), history);
+  log(`TREAT eaten (${source}) - ${history.treatsGiven} so far`);
+  if (behavior.state === 'sleeping') wakeUp('treat');
+  behavior.lastActive = Date.now();
+  sendAnim('chomp');
+  if (win && !win.isDestroyed()) win.webContents.send('petted', { kind: 'treat', quiet: isQuietNow() });
+  pushState();
+  return true;
+}
+
+// Kneading: very occasionally, when she has been petted a lot and is relaxed, she makes
+// biscuits for a few seconds (paws in turn, eyes squinted, a soft purr).
+let KNEAD_CHANCE = 0.35;
+function maybeKnead(force) {
+  const now = Date.now();
+  behavior.strokePets = (behavior.strokePets || []).filter((t) => now - t < 120000);
+  const relaxed = behavior.state !== 'sleeping' && !nagging && !activeAlarm && !partyActive && !playing() && !stroll;
+  if (!force && !(behavior.strokePets.length >= 3 && relaxed && now - (behavior.lastKneadAt || 0) > 5 * 60000 && Math.random() < KNEAD_CHANCE)) return false;
+  behavior.lastKneadAt = now;
+  behavior.strokePets = [];
+  // after the belly-up of the pet that started it
+  setTimeout(() => { if (behavior.state !== 'sleeping') sendAnim('knead'); }, force ? 0 : 3300);
+  log('KNEADING (making biscuits)');
+  return true;
+}
+
+// The kitten companion (unlocked at a 14-day streak): profile id "kitten" (customizable in
+// Customize like any cat), drawn small beside the desktop cat; follows her in play mode.
+const KITTEN_LINE = 'A tiny kitten who follows {their} big friend everywhere and copies every yawn.';
+function ensureKitten() {
+  if (settings.cats.some((c) => c.id === 'kitten')) return false;
+  syncActive();
+  const p = profileFromFlat({ ...DEFAULT_SETTINGS, ...presetSettings('orangetabby') }, 'kitten');
+  Object.assign(p, { name: 'Kitten', gender: 'unspecified', defaultPreset: 'orangetabby', lookLocked: false });
+  autoDescribe(p, KITTEN_LINE);
+  settings.cats.push(p);
+  saveSettings();
+  log('kitten profile created');
+  notifyCatsChanged();
+  return true;
+}
+function kittenLook() {
+  if (!isUnlocked('kitten') || !settings.kittenEnabled || settings.activeCatId === 'kitten') return null;
+  const k = settings.cats.find((c) => c.id === 'kitten');
+  if (!k) return null;
+  return { colors: k.colors, pattern: k.pattern, ears: k.earStyle, fluffy: k.fluffy, tufts: k.tufts, tail: k.tail, whiskers: k.whiskersEnabled };
 }
 
 // Stats window (Stage 9): last 30 days (zero for days without data), streaks, totals.
@@ -2468,7 +2602,8 @@ const currentLook = () => ({
   tail: settings.tail,
   whiskers: settings.whiskersEnabled,
   spotColors: { ...CatSprites.SPOT_DEFAULT_COLORS, ...settings.sleepSpotColors },
-  accessories: settings.accessories || {}, // Stage 8
+  accessories: wornAccessories(settings.accessories), // Stage 8 (locked Stage 10 items stay off)
+  kitten: kittenLook(), // Stage 10
   seasonal: seasonalNow(),
   catName: settings.catName, // for the name tag
 });
@@ -3276,6 +3411,7 @@ function buildContextMenu() {
     { label: 'Chase the mouse', type: 'checkbox', checked: settings.chaseMouse, click: (item) => applySettings({ chaseMouse: item.checked }) },
     { label: 'Walk along the taskbar', type: 'checkbox', checked: settings.taskbarWalk, click: (item) => applySettings({ taskbarWalk: item.checked }) },
     seasonalMenu(),
+    ...(isUnlocked('kitten') ? [{ label: 'Kitten companion', type: 'checkbox', checked: settings.kittenEnabled, click: (item) => applySettings({ kittenEnabled: item.checked }) }] : []),
     { label: 'Customize cat…', click: () => openCustomize() },
     { label: 'Settings…', click: () => openSettings() },
     { label: 'Stats…', click: () => openStats('menu') },
@@ -3478,7 +3614,7 @@ function applyLoginItem() {
 function registerIpc() {
   ipcMain.handle('get-state', () => ({
     cups: day.cups, goal: settings.goalCups, volume: settings.volume, meowStyle: settings.meowStyle, sound: settings.soundEnabled,
-    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, hat: hatOn(), mood: catMood(), pose: behavior.pose,
+    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, hat: hatOn(), mood: catMood(), treat: !!history.treatPending, pose: behavior.pose,
   }));
   // File bytes for Web Audio (works the same inside the packaged asar).
   // `clean: true` = her own file, the renderer cleans it before use.
@@ -3520,6 +3656,7 @@ function registerIpc() {
   ipcMain.on('quit-app', () => quitApp('button'));
   ipcMain.on('restart-app', () => restartApp('button'));
   ipcMain.on('open-settings', () => openSettings());
+  ipcMain.on('eat-treat', () => eatTreat('click')); // Stage 10
   ipcMain.handle('settings:restart', () => restartApp('settings'));
   ipcMain.on('resize-start', () => beginResize('page'));
   ipcMain.on('resize-step', (_e, dir) => resizeStep(Number(dir)));
@@ -3686,9 +3823,9 @@ async function runSelftest() {
   const clearReports = () => { reports.length = 0; };
 
   const hardTimeout = setTimeout(() => {
-    record('overall', false, 'selftest timed out after 240 s');
+    record('overall', false, 'selftest timed out after 420 s');
     finish();
-  }, 240000);
+  }, 420000); // the stages added many waits; selftest.ps1 allows 10 minutes
 
   function finish() {
     clearTimeout(hardTimeout);
@@ -3793,6 +3930,8 @@ async function runSelftest() {
     // line and a full meow every time
     record('Stage 9: rotating lines + meow cap (60 min) are on by default', DEFAULT_SETTINGS.rotateReminders === true && DEFAULT_SETTINGS.meowCapMinutes === 60);
     applySettings({ rotateReminders: false, meowCapMinutes: 0 });
+    // mood follows the real clock (a sad cat's ears move her hit area): only on in its own check
+    applySettings({ moodEnabled: false });
 
     // 0. Stage 4: a drink counts as a pet (default: happy squint + hearts + chirp, no click meow)
     record('Stage 4: "happy chirp on a drink" is on by default', DEFAULT_SETTINGS.cupChirp === true && settings.cupChirp === true);
@@ -3870,6 +4009,7 @@ async function runSelftest() {
       const b0 = win.getBounds();
       const face = b0.x + catAnchor().x;
       const eyesAt = async (x) => {
+        eyesDx = 99; // send the direction again even if it didn't change (her real mouse may already be there)
         fakeCursor = { x, y: b0.y + 50 };
         await sleep(350);
         return win.webContents.executeJavaScript('window.__eyeDx || 0');
@@ -4036,6 +4176,7 @@ async function runSelftest() {
       record('Stage 9: pause until tomorrow, then resume', tomorrowItem && !remindersPaused() && !!pauseItem && pauseItem.submenu.items.length === 2);
       settings.alarms = keepAl;
       // 9d: mood follows progress vs the time of day (quiet hours 23:00-08:00 = waking 08-23)
+      applySettings({ moodEnabled: true });
       const keepQ = [settings.quietStart, settings.quietEnd, day.cups];
       settings.quietStart = '23:00';
       settings.quietEnd = '08:00';
@@ -4055,6 +4196,7 @@ async function runSelftest() {
         && moods.evening7 === 'happy' && moods.evening6 === 'ok' && moods.goal === 'happy' && shownMood === 'happy' && offMood === 'ok', `${JSON.stringify(moods)} page=${shownMood} off=${offMood}`);
       selftestClock = null;
       [settings.quietStart, settings.quietEnd, day.cups] = keepQ;
+      applySettings({ moodEnabled: false });
       moodTick();
       history = keepHist;
       day.partyShownDate = '';
@@ -4182,7 +4324,7 @@ async function runSelftest() {
         await waitFor((r) => r.type === 'customize:saved', 3000);
         await sleep(300);
         const fainuAcc = (settings.cats.find((c) => c.id === 'fainu') || {}).accessories || {};
-        record('Stage 8: Customize → Accessories: 8 items; the bow goes on + recolours, for this cat only', rows === 8 && settings.accessories.bow && settings.accessories.bow.on === true
+        record('Stage 8: Customize → Accessories: every item listed; the bow goes on + recolours, for this cat only', rows === CatSprites.ACC_IDS.length && settings.accessories.bow && settings.accessories.bow.on === true
           && settings.accessories.bow.colors.a === '#00aaff' && !(fainuAcc.bow && fainuAcc.bow.on) && currentLook().accessories.bow.on === true, JSON.stringify(settings.accessories));
         customizeWin.close();
         await sleep(300);
@@ -4202,6 +4344,100 @@ async function runSelftest() {
       SEASON_PREVIEW_MS = 10000;
       applySettings({ seasonalOutfits: true, accessories: {} });
       record('Stage 8: seasonal outfits: off in settings, a menu preview shows one for a moment', off === null && during === 'witch' && after === null && !!sm && sm.submenu.items.length === 6, `${off} ${during} ${after}`);
+    }
+
+    // 0g. Stage 10: unlockables, treats, kneading, the kitten
+    {
+      const keepH = JSON.parse(JSON.stringify(history));
+      const today = todayKey();
+      const metDays = (n, fromBack = 1) => { const d = {}; for (let i = fromBack; i < fromBack + n; i++) d[addDays(today, -i)] = { cups: 9, goal: 8, pets: 0 }; return d; };
+      applySettings({ unlockAllItems: false });
+      settings.cats = settings.cats.filter((c) => c.id !== 'kitten');
+      // a 14-day best streak (and 14 goals reached) unlocks 4 of the 6 rewards
+      history = { days: metDays(14), bestStreak: 14, celebrated: {}, unlocked: {}, treatPending: false, treatsGiven: 0, lastTreatDate: '' };
+      clearReports();
+      const fresh = checkUnlocks('selftest');
+      const ub = await waitFor((r) => r.type === 'bubble' && r.data.shown && /Unlocked/.test(r.data.text || ''), 2000);
+      record('Stage 10: a 14-day streak unlocks heart glasses, flower crown, rainbow fur + the kitten (not gold crown / galaxy yet)',
+        ['heartglasses', 'flowercrown', 'rainbow', 'kitten'].every((id) => fresh.includes(id)) && !isUnlocked('goldcrown') && !isUnlocked('galaxy')
+        && settings.cats.some((c) => c.id === 'kitten') && !!ub && readJsonSafe(historyFile(), {}).unlocked.kitten === today, `${fresh.join(',')} bubble=${!!ub}`);
+      // locked things can't be used
+      applySettings({ breed: 'galaxy' });
+      const galaxyBlocked = settings.breed !== 'galaxy';
+      applySettings({ breed: 'rainbow' });
+      const rainbowOk = settings.breed === 'rainbow' && settings.colors.furBase === CatSprites.PRESETS.rainbow.colors.furBase;
+      applySettings({ breed: 'gargorl', accessories: { goldcrown: { on: true }, heartglasses: { on: true } } });
+      const worn = currentLook().accessories;
+      record('Stage 10: locked presets / items can\'t be used, unlocked ones can', galaxyBlocked && rainbowOk && worn.goldcrown.on === false && worn.heartglasses.on === true, `${settings.breed} ${JSON.stringify(worn)}`);
+      // Customize shows what is still locked
+      clearReports();
+      openCustomize();
+      if (await waitFor((r) => r.type === 'customize:ready', 8000)) {
+        await sleep(200);
+        const ui = await customizeWin.webContents.executeJavaScript(`({
+          gold: document.querySelector('#acc-list li[data-acc="goldcrown"]').classList.contains('locked'),
+          goldNote: (document.querySelector('#acc-list li[data-acc="goldcrown"] .acc-lock') || {}).textContent,
+          heart: document.querySelector('#acc-list li[data-acc="heartglasses"]').classList.contains('locked'),
+          galaxy: document.querySelector('[data-preset="galaxy"]').disabled && document.querySelector('[data-preset="galaxy"]').classList.contains('unlock-locked'),
+          rainbow: document.querySelector('[data-preset="rainbow"]').classList.contains('unlock-locked'),
+          kittenListed: [...document.querySelectorAll('#cat-select option')].some((o) => o.value === 'kitten') })`);
+        record('Stage 10: Customize greys out what is still locked ("unlocks at ...") and lists the kitten', ui.gold && ui.goldNote === '🔒 unlocks at a 30-day streak' && !ui.heart && ui.galaxy && !ui.rainbow && ui.kittenListed, JSON.stringify(ui));
+        customizeWin.close();
+        await sleep(300);
+      } else record('Stage 10: Customize greys out what is still locked', false, 'customize did not open');
+      applySettings({ unlockAllItems: true });
+      const all = Object.keys(CatSprites.UNLOCKS).every((id) => isUnlocked(id));
+      applySettings({ unlockAllItems: false, accessories: {} });
+      record('Stage 10: "unlockAllItems" unlocks everything (for testing)', all && !isUnlocked('goldcrown'));
+      // the kitten sits beside her; off in settings
+      await sleep(300);
+      const kOn = await win.webContents.executeJavaScript('window.__kitten');
+      applySettings({ kittenEnabled: false });
+      await sleep(300);
+      const kOff = await win.webContents.executeJavaScript('window.__kitten');
+      applySettings({ kittenEnabled: true });
+      record('Stage 10: the kitten is drawn beside her (left of the cat), off in settings; menu toggle', !!kOn && kOn.pose === 'sit' && kOn.x >= 0 && kOn.x + kOn.w <= 8 * settings.catSize && !kOff
+        && buildContextMenu().items.some((i) => i.label === 'Kitten companion'), `${JSON.stringify(kOn)} off=${JSON.stringify(kOff)}`);
+      // a treat: the 7th day in a row -> a fish by her side; a click feeds her
+      history = { days: metDays(6), bestStreak: 6, celebrated: {}, unlocked: { ...history.unlocked }, treatPending: false, treatsGiven: 0, lastTreatDate: '' };
+      day.partyShownDate = today;
+      day.cups = settings.goalCups - 1;
+      clearReports();
+      addCup('selftest');
+      await sleep(400);
+      const shown = await win.webContents.executeJavaScript(`!document.getElementById('treat-btn').hidden`);
+      record('Stage 10: a 7-day streak puts a fish treat by her side (saved)', history.treatPending === true && shown && readJsonSafe(historyFile(), {}).treatPending === true
+        && hitRects && hitRects.buttons.length === 6 && hitRects.buttons[5].width > 0, `pending=${history.treatPending} shown=${shown}`);
+      clearReports();
+      await win.webContents.executeJavaScript(`document.getElementById('treat-btn').dispatchEvent(new MouseEvent('mouseup', { button: 0, bubbles: true }))`);
+      const chomp = await waitFor((r) => r.type === 'anim' && r.data.name === 'chomp', 2000);
+      await sleep(300);
+      const gone = await win.webContents.executeJavaScript(`document.getElementById('treat-btn').hidden`);
+      record('Stage 10: clicking the treat feeds her: chomp, purr, hearts, counted', !!chomp && reports.some((r) => r.type === 'purr') && history.treatsGiven === 1 && !history.treatPending && gone,
+        `chomp=${!!chomp} given=${history.treatsGiven}`);
+      clearReports();
+      addCup('selftest');
+      await sleep(300);
+      record('Stage 10: one treat a day at most', !history.treatPending);
+      // kneading after lots of petting
+      KNEAD_CHANCE = 1;
+      behavior.lastKneadAt = 0;
+      behavior.strokePets = [Date.now(), Date.now(), Date.now()];
+      clearReports();
+      const kn = maybeKnead();
+      await sleep(3600);
+      const kneadAnim = reports.find((r) => r.type === 'anim' && r.data.name === 'knead');
+      record('Stage 10: lots of petting -> she makes biscuits (knead anim + soft purr), not again for a while', kn && !!kneadAnim && reports.some((r) => r.type === 'purr')
+        && !maybeKnead(), `knead=${kn} anim=${!!kneadAnim}`);
+      KNEAD_CHANCE = 0.35;
+      await sleep(3500);
+      // clean up
+      history = keepH;
+      settings.cats = settings.cats.filter((c) => c.id !== 'kitten');
+      saveSettings();
+      day.partyShownDate = '';
+      resetCups('selftest');
+      lookChanged('selftest');
     }
 
     // 1. Real (synthetic OS-level) click on the cat -> +1 cup, meow
@@ -4324,7 +4560,7 @@ async function runSelftest() {
       const lp = Buffer.alloc(8);
       lp.writeUInt32LE((0x0201 << 16) | 0x0001, 0);
       record('WM_MOUSEACTIVATE lParam -> WM_LBUTTONDOWN', ((lp.readUInt32LE(0) >>> 16) & 0xffff) === 0x0201);
-      record('page reported hit areas to main', !!(hitRects && hitRects.pet && hitRects.grip && hitRects.buttons.length === 5), JSON.stringify(hitRects));
+      record('page reported hit areas to main', !!(hitRects && hitRects.pet && hitRects.grip && hitRects.buttons.length === 6), JSON.stringify(hitRects));
       const cupsS = day.cups;
       fakeCursor = { x: winAt().x + cx, y: winAt().y + cy };
       onOsLeftDown(); // what the WM_MOUSEACTIVATE hook does
@@ -4739,6 +4975,7 @@ async function runSelftest() {
       const sp = CatSprites.validate();
       record('sprites valid (all breeds x poses x tail x facing)', sp.length === 0, sp.join('; '));
       const looks = [];
+      applySettings({ unlockAllItems: true }); // Stage 10: the unlockable presets too
       applySettings({ breed: BREED_IDS[BREED_IDS.length - 1] }); // so the first one is a real change
       await sleep(150);
       for (const b of BREED_IDS) {
@@ -4750,6 +4987,7 @@ async function runSelftest() {
         await shot(`breed-${b}`);
       }
       record('every breed draws in the cat window', looks.length === BREED_IDS.length, looks.join(','));
+      applySettings({ unlockAllItems: false });
       applySettings({ breed: 'fainu', tail: true });
       await sleep(200);
 
@@ -4949,7 +5187,7 @@ async function runSelftest() {
     {
       let restartOpts = null;
       selftestHooks.onRestart = (opts) => { restartOpts = opts; };
-      const rb2 = ready.data.restartBtn;
+      const rb2 = hitRects.buttons[2]; // the restart button where it is NOW (the cat's shape may have changed since start)
       await click(Math.round(rb2.x + rb2.width / 2), Math.round(rb2.y + rb2.height / 2));
       await sleep(300);
       record('restart button relaunches the app (same args, no --selftest)', !!restartOpts && !restartOpts.args.includes('--selftest'), JSON.stringify(restartOpts));
@@ -4962,7 +5200,7 @@ async function runSelftest() {
       const area = screen.getPrimaryDisplay().workArea;
       setWinPos(area.x + 500, area.y + 300);
       await sleep(100);
-      const gr = ready.data.grip;
+      const gr = hitRects.grip; // where the corner handle is now
       const gx = Math.round(gr.x + gr.width / 2);
       const gy = Math.round(gr.y + gr.height / 2);
       fakeCursor = { x: 1500, y: 800 };
