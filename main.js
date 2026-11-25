@@ -1153,7 +1153,9 @@ function newDay(date, carry = day) {
   const pets = {};
   const src = carry && carry.pets && typeof carry.pets === 'object' ? carry.pets : {};
   for (const [id, p] of Object.entries(src)) if (CAT_ID_RE.test(id)) pets[id] = { today: 0, total: nonNegInt(p && p.total) };
-  return { date, cups: 0, pets };
+  // partyShownDate (Stage 5): the day of the last goal party; the hat stays on that day
+  const party = carry && typeof carry.partyShownDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(carry.partyShownDate) ? carry.partyShownDate : '';
+  return { date, cups: 0, pets, partyShownDate: party };
 }
 // Pet counters of a cat (the active one by default), created on first use.
 function petsOf(id = settings.activeCatId) {
@@ -1219,7 +1221,7 @@ function pushState(extra = {}) {
   if (!win || win.isDestroyed()) return;
   win.webContents.send('state', {
     cups: day.cups, goal: settings.goalCups, volume: settings.volume, meowStyle: settings.meowStyle, sound: settings.soundEnabled,
-    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, ...extra,
+    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, hat: hatOn(), ...extra,
   });
 }
 
@@ -1240,6 +1242,8 @@ function addCup(source) {
   endReminder('cup logged');
   // Stage 4: every drink also counts as a pet (happy squint, hearts, +1 pet, chirp)
   pet('cup', source);
+  // Stage 5: the first time today she reaches her goal -> party
+  if (day.cups >= settings.goalCups && day.partyShownDate !== day.date) startParty('goal');
 }
 
 function undoCup(source) {
@@ -1299,6 +1303,64 @@ function pet(kind, source) {
   if (win && !win.isDestroyed()) win.webContents.send('petted', { kind, quiet: isQuietNow() || wasAsleep, petsToday: pc.today, chirp: settings.cupChirp });
   pushState();
   return { ok: true, petsToday: pc.today };
+}
+
+// --- Party (Stage 5) -----------------------------------------------------------
+// The first time she reaches her goal on a day: party hat + a disco ball with light beams
+// that pulse to a short, quiet synthesized party loop (~20 s). No music (lights pulse to a
+// timed beat instead) when sound is off, in quiet hours or over a fullscreen game. The ball
+// and lights fade out; the hat stays until midnight. "Test party" in the menu: hat only
+// while it plays. Once per day: cups.json partyShownDate.
+let PARTY_MS = 20000; // the selftest shortens it
+let partyActive = null; // { source, until }
+let partyTimer = null;
+const hatOn = () => !!partyActive || day.partyShownDate === todayKey();
+
+async function startParty(source) {
+  checkDayRollover();
+  if (source !== 'test' && day.partyShownDate !== day.date) {
+    day.partyShownDate = day.date;
+    saveCups();
+  }
+  if (partyActive) return false;
+  if (!win || win.isDestroyed() || !win.isVisible()) {
+    log(`PARTY (${source}) skipped: the cat is hidden (the hat waits for her)`);
+    pushState();
+    return false;
+  }
+  if (behavior.state === 'sleeping') wakeUp('party');
+  hideMenu('party');
+  const quiet = isQuietNow();
+  let music = settings.soundEnabled && !quiet;
+  let why = !settings.soundEnabled ? 'sound off' : quiet ? 'quiet hours' : '';
+  if (music && !SELFTEST) {
+    try {
+      const fs0 = await require('./fullscreen.js').query();
+      if (fs0.busy) { music = false; why = `fullscreen app (${fs0.name})`; }
+    } catch (_) {
+      music = false;
+      why = 'fullscreen check failed';
+    }
+  }
+  if (partyActive) return false; // started meanwhile
+  partyActive = { source, until: Date.now() + PARTY_MS };
+  behavior.lastActive = Date.now();
+  log(`PARTY (${source}) for ${PARTY_MS / 1000} s, music ${music ? 'on' : `off (${why})`}`);
+  pushState();
+  win.webContents.send('party', { on: true, music, volume: settings.volume, ms: PARTY_MS });
+  clearTimeout(partyTimer);
+  partyTimer = setTimeout(() => endParty('over'), PARTY_MS + 600);
+  return true;
+}
+function endParty(reason) {
+  clearTimeout(partyTimer);
+  partyTimer = null;
+  if (!partyActive) return false;
+  partyActive = null;
+  log(`PARTY END (${reason}); hat ${hatOn() ? 'stays on until midnight' : 'off'}`);
+  if (win && !win.isDestroyed()) win.webContents.send('party', { on: false });
+  pushState();
+  return true;
 }
 
 function resetReminderTimer() {
@@ -2656,6 +2718,7 @@ function buildContextMenu() {
     { label: 'Undo last cup', click: () => undoCup('menu') },
     { label: "Reset today's cups", click: () => resetCups('menu') },
     { label: 'Test reminder', click: () => fireReminder('test') },
+    partyActive ? { label: 'Stop the party', click: () => endParty('menu') } : { label: 'Test party 🎉', click: () => startParty('test') },
     ...(activeAlarm ? [{ label: 'Dismiss alarm', click: () => dismissAlarm('menu') }] : []),
     ...(nagging ? [{ label: 'Dismiss reminder', click: () => dismissReminder('menu') }] : []),
     { type: 'separator' },
@@ -2738,7 +2801,7 @@ function updaterDeps(extra = {}) {
     getSettings: () => settings,
     setSettings: (p) => { Object.assign(settings, p); saveSettings(); },
     // checks wait while something is on her screen
-    busyReason: () => (nagging ? 'a water reminder is up' : activeAlarm ? 'an alarm is up' : null),
+    busyReason: () => (nagging ? 'a water reminder is up' : activeAlarm ? 'an alarm is up' : partyActive ? 'a party is on' : null),
     // the one "update ready" bubble: never in quiet hours, while she sleeps / is hidden,
     // over another bubble, or over a fullscreen game
     announceBlock: async () => {
@@ -2861,7 +2924,7 @@ function applyLoginItem() {
 function registerIpc() {
   ipcMain.handle('get-state', () => ({
     cups: day.cups, goal: settings.goalCups, volume: settings.volume, meowStyle: settings.meowStyle, sound: settings.soundEnabled,
-    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, pose: behavior.pose,
+    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, hat: hatOn(), pose: behavior.pose,
   }));
   // File bytes for Web Audio (works the same inside the packaged asar).
   // `clean: true` = her own file, the renderer cleans it before use.
@@ -3189,6 +3252,49 @@ async function runSelftest() {
     addCup('tray');
     await sleep(400);
     record('Stage 4: chirp off -> no chirp (still a pet)', petsOf().today === petsC + 4 && !reports.some((r) => r.type === 'chirp'));
+
+    // 0b. Stage 5: party on reaching the goal (shortened to 2.5 s here)
+    PARTY_MS = 2500;
+    day.partyShownDate = '';
+    pushState();
+    await sleep(300);
+    const petRect0 = JSON.stringify(hitRects && hitRects.pet);
+    const count0 = await win.webContents.executeJavaScript(`document.getElementById('count').style.top`);
+    day.cups = settings.goalCups - 1;
+    clearReports();
+    addCup('selftest');
+    const pStart = await waitFor((r) => r.type === 'party' && r.data.started, 3000);
+    await sleep(300);
+    const pMid = await win.webContents.executeJavaScript(`({ on: window.__partyOn(), shown: !document.getElementById('party').hidden, count: document.getElementById('count').style.top })`);
+    record('Stage 5: reaching the goal starts the party (disco ball + lights) and saves the day', !!pStart && pMid.on && pMid.shown && day.partyShownDate === todayKey()
+      && readJsonSafe(cupsFile(), {}).partyShownDate === todayKey() && !!partyActive, `${JSON.stringify(pStart && pStart.data)} ${JSON.stringify(pMid)}`);
+    record('Stage 5: music only when sound is on and not in quiet hours', !!pStart && pStart.data.music === (settings.soundEnabled && !isQuietNow()), `music=${pStart && pStart.data.music} quiet=${isQuietNow()}`);
+    record('Stage 5: the updater waits during a party', updaterDeps().busyReason() === 'a party is on');
+    record('Stage 5: the hat moves the counter up but is not part of the hit area', pMid.count !== count0 && JSON.stringify(hitRects && hitRects.pet) === petRect0, `${count0} -> ${pMid.count}`);
+    const pEnd = await waitFor((r) => r.type === 'party-end', 5000);
+    await sleep(800);
+    const pAfter = await win.webContents.executeJavaScript(`({ on: window.__partyOn(), shown: !document.getElementById('party').hidden })`);
+    record('Stage 5: after the party the ball + lights go, the hat stays (until midnight)', !!pEnd && pEnd.data.frames >= 10 && pEnd.data.peak > 0 && !pAfter.on && !pAfter.shown
+      && !partyActive && hatOn(), `${JSON.stringify(pEnd && pEnd.data)} ${JSON.stringify(pAfter)}`);
+    clearReports();
+    addCup('selftest');
+    await sleep(700);
+    record('Stage 5: only one party per day', !reports.some((r) => r.type === 'party'));
+    // "Test party" in the right-click menu, "Stop the party" while it plays
+    clearReports();
+    buildContextMenu().items.find((i) => i.label === 'Test party 🎉').click();
+    const tStart = await waitFor((r) => r.type === 'party' && r.data.started, 3000);
+    const stopItem = buildContextMenu().items.find((i) => i.label === 'Stop the party');
+    if (stopItem) stopItem.click();
+    const tEnd = await waitFor((r) => r.type === 'party-end', 2000);
+    record('Stage 5: menu "Test party 🎉", and "Stop the party" ends it', !!tStart && !!stopItem && !!tEnd && tEnd.data.reason === 'main' && !partyActive);
+    // a new day takes the hat off
+    day.partyShownDate = '2000-01-01';
+    pushState();
+    await sleep(200);
+    record('Stage 5: no hat on a day without a party', !hatOn());
+    day.partyShownDate = '';
+    PARTY_MS = 20000;
 
     // 1. Real (synthetic OS-level) click on the cat -> +1 cup, meow
     resetCups('selftest');

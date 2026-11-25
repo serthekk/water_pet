@@ -186,6 +186,10 @@ html, body {
 body.can-resize #pet:hover #resize-grip,
 body.resizing #resize-grip { opacity: 1; pointer-events: auto; }
 
+/* Party (Stage 5): disco ball + lights over the whole window, never takes the mouse. */
+#party { position: absolute; left: 0; top: 0; pointer-events: none; image-rendering: pixelated; }
+#party[hidden] { display: none; }
+
 /* The chosen drink (drinks.js), drawn at 2 px per cell. Never smooth-scaled. */
 #drink { flex: none; image-rendering: pixelated; filter: drop-shadow(0 0 1px #1d1616); }
 #bowl[hidden], #drink[hidden] { display: none; }

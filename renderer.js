@@ -20,6 +20,7 @@
   let volume = 0.5;
   let soundOn = true; // settings "soundEnabled": every sound checks it
   let cupChirp = true; // Stage 4: a logged drink chirps (then a click doesn't meow)
+  let hatOn = false; // Stage 5: party hat (from the goal party until midnight)
   let bubbleTimer = null;
   let pressing = false; // left button is down on the cat
 
@@ -42,6 +43,7 @@
     if (typeof s.meowStyle === 'string') meowStyle = s.meowStyle;
     if (typeof s.sound === 'boolean') soundOn = s.sound;
     if (typeof s.cupChirp === 'boolean') cupChirp = s.cupChirp;
+    if (typeof s.hat === 'boolean' && s.hat !== hatOn) { hatOn = s.hat; redrawNow(); }
     countEl.textContent = `${s.cups} / ${s.goal} ${s.word || 'cups'}`;
     if (s.drink && s.drink !== shownDrink) showDrink(s.drink);
     if (typeof s.mouseResize === 'boolean') document.body.classList.toggle('can-resize', s.mouseResize);
@@ -103,13 +105,17 @@
   if (spriteProblems.length) api.report('error', { message: 'sprite problems: ' + spriteProblems.join('; ') });
 
   // opts (sleeping spots, Stage E): { spot, spotAlpha, place: {dx, dy}, overlay, lookDx }
+  let lastArgs = null; // the frame on screen (redrawNow repaints it, e.g. when the hat changes)
+  function redrawNow() { if (lastArgs) drawFrame(...lastArgs); }
   function drawFrame(pose, frame, facing, opts = {}) {
-    const key = `${lookKey}|${pose}|${frame}|${facing}|${JSON.stringify(opts)}`;
+    lastArgs = [pose, frame, facing, opts];
+    const key = `${lookKey}|${pose}|${frame}|${facing}|${JSON.stringify(opts)}|${hatOn}`;
     if (key === drawn) return;
     drawn = key;
     const scene = S.renderScene({
       pose, frame, facing, look: opts.lookDx ? { ...look, lookDx: opts.lookDx } : look,
       place: opts.place, spot: opts.spot, spotColors: look.spotColors, spotAlpha: opts.spotAlpha, overlay: opts.overlay,
+      hat: hatOn, // Stage 5: party hat until midnight
     });
     g.imageSmoothingEnabled = false;
     g.clearRect(0, 0, cat.width, cat.height);
@@ -127,6 +133,9 @@
     // Hit area = the VISIBLE cat only (furniture never takes the mouse).
     const bb = scene.catBox;
     const box = bb && { x: canvasLeft + bb.x * CELL, y: SPRITE_TOP + bb.y * CELL, width: bb.w * CELL, height: bb.h * CELL };
+    // the counter + bubble go above the hat too (it is not part of the hit area)
+    const hatTop = scene.hatBox ? SPRITE_TOP + scene.hatBox.y * CELL : null;
+    if (box) box.overTop = hatTop === null ? box.y : Math.min(box.y, hatTop);
     if (box && JSON.stringify(box) !== JSON.stringify(lastBox)) {
       lastBox = box;
       Object.assign(pet.style, { left: `${box.x}px`, top: `${box.y}px`, width: `${box.width}px`, height: `${box.height}px` });
@@ -145,7 +154,7 @@
   // The counter + bubble sit just above her head wherever she is (on the cat tree too),
   // and the z z z float from her head.
   function placeOverlays(box) {
-    const countTop = Math.max(36, box.y - 24);
+    const countTop = Math.max(36, (box.overTop === undefined ? box.y : box.overTop) - 24);
     document.getElementById('count').style.top = `${countTop}px`;
     bubble.style.top = `${countTop - 4}px`;
     // z z z: over her head, above the counter (never on top of the bowl / numbers)
@@ -607,6 +616,182 @@
     o.stop(now + 0.14);
     api.report('squeak', { ok: true });
   }
+
+  // --- Party (Stage 5) -------------------------------------------------------------
+  // Disco ball drops in above her, coloured beams + light spots sweep around it, pulsing to
+  // a short synthesized loop (kick, hi-hat, arpeggio) read through an AnalyserNode. No music
+  // -> the lights pulse to a timed beat. Drawn at ~12 fps in chunky pixels (light on games).
+  const partyCv = document.getElementById('party');
+  const BEAM_COLORS = ['#ff5fa2', '#ffd23f', '#5fd3ff', '#b07bff', '#7dff8a', '#ff9a3c'];
+  let party = null; // { timer, start, ms, analyser, nodes, peak, frames, angle }
+  const BPM = 124;
+  const BEAT = 60 / BPM;
+
+  function partyMusic(seconds, vol) {
+    if (ctx.state !== 'running') ctx.resume();
+    const t0 = ctx.currentTime + 0.05;
+    const master = ctx.createGain();
+    const level = Math.min(1, Math.max(0, vol)) * 0.35; // quiet: it plays over her game
+    master.gain.setValueAtTime(0, t0);
+    master.gain.linearRampToValueAtTime(level, t0 + 0.6);
+    master.gain.setValueAtTime(level, t0 + seconds - 2);
+    master.gain.linearRampToValueAtTime(0, t0 + seconds);
+    // instruments -> mix -> analyser -> master (volume) -> speakers: the analyser hears the
+    // loop BEFORE the volume, so the lights are just as lively at a low volume
+    const mix = ctx.createGain();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    mix.connect(analyser);
+    analyser.connect(master);
+    master.connect(ctx.destination);
+    const nodes = [master, analyser, mix];
+    const noise = (() => {
+      const b = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate);
+      const d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      return b;
+    })();
+    const kick = (t) => {
+      const o = ctx.createOscillator();
+      const g2 = ctx.createGain();
+      o.frequency.setValueAtTime(140, t);
+      o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+      g2.gain.setValueAtTime(0.9, t);
+      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      o.connect(g2).connect(mix);
+      o.start(t);
+      o.stop(t + 0.2);
+    };
+    const hat = (t) => {
+      const s = ctx.createBufferSource();
+      s.buffer = noise;
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 7000;
+      const g2 = ctx.createGain();
+      g2.gain.setValueAtTime(0.25, t);
+      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      s.connect(hp).connect(g2).connect(mix);
+      s.start(t);
+      s.stop(t + 0.06);
+    };
+    const note = (t, f) => {
+      const o = ctx.createOscillator();
+      const g2 = ctx.createGain();
+      o.type = 'square';
+      o.frequency.value = f;
+      g2.gain.setValueAtTime(0.06, t);
+      g2.gain.exponentialRampToValueAtTime(0.001, t + BEAT / 4 - 0.01);
+      o.connect(g2).connect(mix);
+      o.start(t);
+      o.stop(t + BEAT / 4);
+    };
+    // C - Am - F - G, one bar each, arpeggio in 16ths
+    const CHORDS = [[523.25, 659.25, 783.99, 1046.5], [440, 523.25, 659.25, 880], [349.23, 440, 523.25, 698.46], [392, 493.88, 587.33, 783.99]];
+    for (let beat = 0; beat * BEAT < seconds - 1; beat++) {
+      const t = t0 + beat * BEAT;
+      kick(t);
+      hat(t + BEAT / 2);
+      const chord = CHORDS[Math.floor(beat / 4) % CHORDS.length];
+      for (let s = 0; s < 4; s++) note(t + (s * BEAT) / 4, chord[(beat * 4 + s) % chord.length]);
+    }
+    return { analyser, nodes, buf: new Uint8Array(analyser.fftSize) };
+  }
+
+  function partyLevel(p, elapsed) {
+    if (p.audio) {
+      p.audio.analyser.getByteTimeDomainData(p.audio.buf);
+      let sum = 0;
+      for (const v of p.audio.buf) sum += ((v - 128) / 128) ** 2;
+      return Math.min(1, Math.sqrt(sum / p.audio.buf.length) * 2.5);
+    }
+    const phase = (elapsed / 1000 / BEAT) % 1; // timed beat: a flash on every beat
+    return Math.max(0.15, Math.exp(-phase * 4));
+  }
+
+  function drawParty() {
+    const p = party;
+    if (!p) return;
+    const elapsed = performance.now() - p.start;
+    const W = partyCv.width;
+    const H = partyCv.height;
+    const pg = partyCv.getContext('2d');
+    pg.imageSmoothingEnabled = false;
+    pg.clearRect(0, 0, W, H);
+    const lvl = partyLevel(p, elapsed);
+    p.peak = Math.max(p.peak, lvl);
+    p.frames += 1;
+    // fade: in over 0.6 s, out over the last 2 s
+    const fade = Math.min(1, elapsed / 600, Math.max(0, (p.ms - elapsed) / 2000));
+    pg.globalAlpha = fade;
+    const sc = Math.max(3, Math.round(CELL * 0.6)); // ball pixel size (whole px)
+    const ball = S.renderProp('ball');
+    const bw = ball[0].length * sc;
+    const bh = ball.length * sc;
+    const cx = Math.round((lastBox ? lastBox.x + lastBox.width / 2 : W / 2) - bw / 2);
+    const drop = Math.min(1, elapsed / 700); // the ball drops in from above
+    const by = Math.round(-bh + (bh + 2) * drop);
+    const ox = cx + bw / 2;
+    const oy = by + bh * 0.6;
+    // beams: chunky squares along 6 rays turning around the ball
+    p.angle += 0.09;
+    const px = Math.max(3, Math.round(CELL / 2.5));
+    for (let i = 0; i < BEAM_COLORS.length; i++) {
+      const a = p.angle + (i * Math.PI * 2) / BEAM_COLORS.length;
+      pg.fillStyle = BEAM_COLORS[i];
+      for (let r = bw * 0.6; r < Math.max(W, H); r += px * 1.6) {
+        const x = Math.round((ox + Math.cos(a) * r) / px) * px;
+        const y = Math.round((oy + Math.sin(a) * r) / px) * px;
+        if (x < -px || y < -px || x > W || y > H) break;
+        pg.globalAlpha = fade * (0.3 + 0.6 * lvl) * Math.max(0.35, 1 - r / Math.max(W, H));
+        pg.fillRect(x, y, px, px);
+      }
+      // a light spot where the beam lands (low in the window, sweeping)
+      const sx = Math.round((ox + Math.cos(a) * W * 0.45) / px) * px;
+      const sy = Math.round((H * 0.62 + Math.sin(a * 2) * H * 0.25) / px) * px;
+      pg.globalAlpha = fade * (0.35 + 0.65 * lvl);
+      pg.fillRect(sx, sy, px * 3, px * 3);
+    }
+    // the ball, its mirror tiles sparkling with the music
+    pg.globalAlpha = fade;
+    ball.forEach((row, y) => row.forEach((col, x) => {
+      if (!col) return;
+      const sparkle = col === '#ffffff' && lvl > 0.55 && (x + y + p.frames) % 3 === 0;
+      pg.fillStyle = sparkle ? BEAM_COLORS[(x + p.frames) % BEAM_COLORS.length] : col;
+      pg.fillRect(cx + x * sc, by + y * sc, sc, sc);
+    }));
+    pg.globalAlpha = 1;
+    if (elapsed >= p.ms) stopParty('over');
+  }
+
+  function startParty(o) {
+    stopParty('restart');
+    partyCv.width = window.innerWidth;
+    partyCv.height = window.innerHeight;
+    partyCv.hidden = false;
+    const ms = Math.max(1000, o.ms || 20000);
+    const audio = o.music && soundOn ? partyMusic(ms / 1000, typeof o.volume === 'number' ? o.volume : volume) : null;
+    party = { start: performance.now(), ms, audio, peak: 0, frames: 0, angle: 0 };
+    party.timer = setInterval(drawParty, 80);
+    drawParty();
+    api.report('party', { started: true, music: !!audio, ms });
+  }
+  function stopParty(reason) {
+    if (!party) return;
+    const p = party;
+    party = null;
+    clearInterval(p.timer);
+    if (p.audio) {
+      const now = ctx.currentTime;
+      try { p.audio.nodes[0].gain.cancelScheduledValues(now); p.audio.nodes[0].gain.setTargetAtTime(0, now, 0.15); } catch (_) { /* gone */ }
+      setTimeout(() => p.audio.nodes.forEach((n) => { try { n.disconnect(); } catch (_) { /* gone */ } }), 800);
+    }
+    partyCv.getContext('2d').clearRect(0, 0, partyCv.width, partyCv.height);
+    partyCv.hidden = true;
+    api.report('party-end', { reason, frames: p.frames, peak: +p.peak.toFixed(2), music: !!p.audio });
+  }
+  api.onParty((o) => (o && o.on ? startParty(o) : stopParty('main')));
+  window.__partyOn = () => !!party; // selftest
 
   // Happy drink chirp (Stage 4): two quick rising notes, a little brighter than the squeak.
   function chirp(quiet) {

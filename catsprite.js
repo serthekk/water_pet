@@ -651,7 +651,39 @@
       }
     }
     const visible = cat.map((row, y) => row.map((c, x) => (c && !over[y][x] ? c : null)));
-    return { under, over, whiskers: whiskerLines(o.pose, o.frame, L, o.facing || 1, o.place), catBox: bbox(visible), clipped };
+    // Party hat (Stage 5): on her forehead in every pose, painted over the cat but under
+    // a spot's front (in the box only its tip shows). Not part of the hit area.
+    let hatBox = null;
+    if (o.hat) {
+      const at = hatPlace(o.pose, o.frame, o.facing || 1, o.place, cat);
+      if (at) {
+        const hat = renderProp('hat');
+        hat.forEach((row, y) => row.forEach((c, x) => {
+          const gx = at.x + x;
+          const gy = at.y + y;
+          if (c && gx >= 0 && gx < CANVAS.cols && gy >= 0 && gy < CANVAS.rows) under[gy][gx] = c;
+        }));
+        hatBox = { x: at.x, y: at.y, w: hat[0].length, h: hat.length };
+      }
+    }
+    return { under, over, whiskers: whiskerLines(o.pose, o.frame, L, o.facing || 1, o.place), catBox: bbox(visible), hatBox, clipped };
+  }
+
+  // Where the party hat goes: centred on the head column (the face anchor of the pose),
+  // its brim on the first cat cell from the top in that column (the forehead).
+  function hatPlace(pose, frame, facing, place, catGrid) {
+    const lay = LAYOUT[pose] || LAYOUT.sit;
+    const rows = (FRAMES[pose] || FRAMES.sit)[frame] || Object.values(FRAMES[pose] || FRAMES.sit)[0];
+    const w = Math.max(...rows.map((r) => r.length));
+    const fx = Math.round(lay.face[0]);
+    const hc = ((place && place.dx) || 0) + (facing === -1 ? lay.col + (w - 1 - fx) : lay.col + fx);
+    let top = -1;
+    for (let y = 0; y < CANVAS.rows && top < 0; y++) {
+      for (let x = hc - 1; x <= hc + 1; x++) if (catGrid[y] && catGrid[y][x]) { top = y; break; }
+    }
+    if (top < 0) return null;
+    const hat = PARTY_HAT.rows;
+    return { x: hc - Math.floor(hat[0].length / 2), y: top - hat.length + 1 };
   }
 
   // Pixel heart for petting (fixed colours).
@@ -707,7 +739,7 @@
     CANVAS, PARTS, PRESETS, PATTERNS, GARGORL,
     POSES: Object.fromEntries(Object.entries(FRAMES).map(([p, f]) => [p, Object.keys(f)])),
     presetList: () => Object.entries(PRESETS).map(([id, p]) => ({ id, label: p.label, description: p.description || '' })),
-    render, renderProp, bbox, validate, whiskerLines, whiskerSquares, noseRect,
+    render, renderProp, hatPlace, bbox, validate, whiskerLines, whiskerSquares, noseRect,
     renderScene, spotCells, SPOT_IDS, SPOT_PARTS, SPOT_DEFAULT_COLORS, SPOT_LABELS, SPOT_CAT, tailColor,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
