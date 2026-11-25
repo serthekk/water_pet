@@ -94,6 +94,15 @@
   }
   const pad = (rows, w) => rows.map((r) => r.padEnd(w, '.'));
 
+  // Mood (Stage 9): a little sad = ears flattened sideways + heavy eyelids (sitting only).
+  function sadEdits() {
+    const e = [];
+    for (const [x, y] of [[2, 0], [2, 1], [2, 2], [3, 2], [13, 0], [13, 1], [12, 2], [13, 2]]) e.push([x, y, '.']);
+    e.push([1, 3, 'K'], [2, 3, 'U'], [3, 3, 'I'], [4, 3, 'K']); // left ear, pointing out
+    e.push([11, 3, 'K'], [12, 3, 'I'], [13, 3, 'U'], [14, 3, 'K']); // right ear
+    for (const cols of [SIT_EYES.left, SIT_EYES.right]) for (const x of cols) e.push([x, 7, 'K']); // eyelids
+    return e;
+  }
   const SIT_BLINK = setCells(SIT, eyeEdits('blink'));
   const SIT_SQUINT = setCells(SIT, eyeEdits('squint'));
   const YAWN = setCells(SIT, [
@@ -402,6 +411,7 @@
     const lay = LAYOUT[pose] || LAYOUT.sit;
     let rows = (FRAMES[pose] || FRAMES.sit)[frame] || Object.values(FRAMES[pose] || FRAMES.sit)[0];
     if ((pose === 'sit') && L.lookDx) rows = setCells(rows, lookEdits(L.lookDx));
+    if (pose === 'sit' && L.mood === 'sad' && frame !== 'squint') rows = setCells(rows, sadEdits());
     const h = rows.length;
     const w = Math.max(...rows.map((r) => r.length));
     const out = Array.from({ length: CANVAS.rows }, () => Array(CANVAS.cols).fill(null));

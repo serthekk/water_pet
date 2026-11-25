@@ -22,6 +22,7 @@
   let cupChirp = true; // Stage 4: a logged drink chirps (then a click doesn't meow)
   let hatOn = false; // Stage 5: party hat (from the goal party until midnight)
   let eyeDx = 0; // Stage 7: -1 / 0 / 1, where the mouse is (from main)
+  let moodNow = 'ok'; // Stage 9: 'happy' | 'ok' | 'sad' (from main's state)
   let bubbleTimer = null;
   let pressing = false; // left button is down on the cat
 
@@ -45,6 +46,7 @@
     if (typeof s.sound === 'boolean') soundOn = s.sound;
     if (typeof s.cupChirp === 'boolean') cupChirp = s.cupChirp;
     if (typeof s.hat === 'boolean' && s.hat !== hatOn) { hatOn = s.hat; redrawNow(); }
+    if (typeof s.mood === 'string' && s.mood !== moodNow) { moodNow = s.mood; window.__mood = moodNow; redrawNow(); }
     countEl.textContent = `${s.cups} / ${s.goal} ${s.word || 'cups'}`;
     if (s.drink && s.drink !== shownDrink) showDrink(s.drink);
     if (typeof s.mouseResize === 'boolean') document.body.classList.toggle('can-resize', s.mouseResize);
@@ -112,11 +114,11 @@
     lastArgs = [pose, frame, facing, opts];
     // Stage 7: sitting with open eyes and no look of her own -> pupils toward the cursor
     if (pose === 'sit' && opts.lookDx === undefined && eyeDx && (frame === 'sit' || frame === 'wag') && !opts.spot) opts = { ...opts, lookDx: eyeDx };
-    const key = `${lookKey}|${pose}|${frame}|${facing}|${JSON.stringify(opts)}|${hatOn}`;
+    const key = `${lookKey}|${pose}|${frame}|${facing}|${JSON.stringify(opts)}|${hatOn}|${moodNow}`;
     if (key === drawn) return;
     drawn = key;
     const scene = S.renderScene({
-      pose, frame, facing, look: opts.lookDx ? { ...look, lookDx: opts.lookDx } : look,
+      pose, frame, facing, look: { ...look, mood: moodNow, ...(opts.lookDx ? { lookDx: opts.lookDx } : {}) },
       place: opts.place, spot: opts.spot, spotColors: look.spotColors, spotAlpha: opts.spotAlpha, overlay: opts.overlay,
       hat: hatOn, // Stage 5: party hat until midnight
     });
@@ -250,7 +252,9 @@
     const idle = () => {
       const blink = [['blink', 160], ['sit', 0]];
       const wag = [['wag', 220], ['sit', 220], ['wag', 220], ['sit', 0]];
-      steps(Math.random() < 0.6 ? blink : wag, () => { frameTimer = setTimeout(idle, 2200 + Math.random() * 3800); });
+      // Stage 9 mood: a happy cat wags more, a sad one not at all
+      const wagChance = moodNow === 'sad' ? 0 : moodNow === 'happy' ? 0.6 : 0.4;
+      steps(Math.random() < wagChance ? wag : blink, () => { frameTimer = setTimeout(idle, 2200 + Math.random() * 3800); });
       window.__idleLife = (window.__idleLife || 0) + 1; // read by the selftest (no log spam)
     };
     frameTimer = setTimeout(idle, 2200 + Math.random() * 3800);

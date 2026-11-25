@@ -139,6 +139,7 @@ const DEFAULT_SETTINGS = {
   meowCapMinutes: 60, // at most one full reminder meow this often (0 = no cap); others chirp softly
   remindersPausedUntil: 0, // ms timestamp; 0 = not paused
   eyesFollow: true, // Stage 7: her pupils follow the mouse
+  moodEnabled: true, // Stage 9: ears / eyes / tail follow today's progress
   taskbarWalk: false, // Stage 7: now and then she strolls along the bottom of the screen
   chaseMouse: false,
   theme: 'cream', // colours of the right-click menu + every window (themes.js); 'custom' = customTheme
@@ -507,7 +508,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
     const list = raw.customPresets.map((p) => p && sanitizeCustomPreset(p)).filter(Boolean);
     if (list.length === raw.customPresets.length) s.customPresets = list;
   }
-  for (const k of ['rotateReminders', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
+  for (const k of ['moodEnabled', 'rotateReminders', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
   // older files: sleepWhenIdle / sleepAfterMinutes (old default 10 -> new default 15)
   if (typeof raw.idleSleepEnabled !== 'boolean' && typeof raw.sleepWhenIdle === 'boolean') s.idleSleepEnabled = raw.sleepWhenIdle;
   if (raw.idleSleepMinutes === undefined && Number.isInteger(raw.sleepAfterMinutes) && raw.sleepAfterMinutes !== 10) raw = { ...raw, idleSleepMinutes: Math.min(120, raw.sleepAfterMinutes) };
@@ -1060,7 +1061,7 @@ function saveSettings() {
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
   'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
-  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'reminderMessages', 'rotateReminders', 'meowCapMinutes', 'remindersPausedUntil'];
+  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'reminderMessages', 'rotateReminders', 'meowCapMinutes', 'remindersPausedUntil', 'moodEnabled'];
 
 // For the Settings toolbar (Sleep / Wake, Hide / Show).
 function catState() {
@@ -1259,7 +1260,7 @@ function pushState(extra = {}) {
   if (!win || win.isDestroyed()) return;
   win.webContents.send('state', {
     cups: day.cups, goal: settings.goalCups, volume: settings.volume, meowStyle: settings.meowStyle, sound: settings.soundEnabled,
-    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, hat: hatOn(), ...extra,
+    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, hat: hatOn(), mood: catMood(), ...extra,
   });
 }
 
@@ -1477,6 +1478,35 @@ function openStats(source) {
   statsWin.loadFile(path.join(__dirname, 'stats.html'));
   log(`stats window opened (${source})`);
   return statsWin;
+}
+
+// Mood (Stage 9): today's drinks against the time of day, over her waking hours (end of
+// quiet hours -> start of quiet hours; 08:00-22:00 without quiet hours). 'happy' = on
+// track or goal reached, 'sad' = well behind (>= 2 drinks and >= 35 % of the goal),
+// else 'ok'. Subtle only: ears, eyelids, tail wags (no extra UI).
+function catMood() {
+  if (!settings.moodEnabled) return 'ok';
+  const goal = settings.goalCups;
+  if (day.cups >= goal) return 'happy';
+  const now = nowDate();
+  const mins = now.getHours() * 60 + now.getMinutes();
+  let start = toMinutes(settings.quietEnd);
+  let end = toMinutes(settings.quietStart);
+  if (start === end) { start = 8 * 60; end = 22 * 60; }
+  const span = (end - start + 1440) % 1440 || 1440;
+  const into = (mins - start + 1440) % 1440;
+  const f = into > span ? 1 : into / span; // outside the waking hours (night): the whole day
+  const expected = goal * f;
+  if (day.cups >= expected) return 'happy';
+  return expected - day.cups >= Math.max(2, goal * 0.35) ? 'sad' : 'ok';
+}
+let lastMood = null;
+function moodTick() {
+  const m = catMood();
+  if (m === lastMood) return;
+  if (lastMood !== null) log(`mood: ${lastMood} -> ${m} (${day.cups}/${settings.goalCups})`);
+  lastMood = m;
+  pushState();
 }
 
 // --- Party (Stage 5) -----------------------------------------------------------
@@ -1791,6 +1821,7 @@ function tick() {
     checkDayRollover();
     checkAlarms();
     if (settings.remindersPausedUntil && !remindersPaused()) resumeReminders('pause over');
+    moodTick(); // Stage 9: the mood follows the clock too
     if (activeAlarm && Date.now() >= activeAlarm.nextAt) {
       activeAlarm.repeats += 1;
       ringAlarm('repeat');
@@ -3275,7 +3306,7 @@ function applyLoginItem() {
 function registerIpc() {
   ipcMain.handle('get-state', () => ({
     cups: day.cups, goal: settings.goalCups, volume: settings.volume, meowStyle: settings.meowStyle, sound: settings.soundEnabled,
-    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, hat: hatOn(), pose: behavior.pose,
+    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, hat: hatOn(), mood: catMood(), pose: behavior.pose,
   }));
   // File bytes for Web Audio (works the same inside the packaged asar).
   // `clean: true` = her own file, the renderer cleans it before use.
@@ -3824,6 +3855,27 @@ async function runSelftest() {
       const pauseItem = buildContextMenu().items.find((i) => i.label === 'Pause reminders');
       record('Stage 9: pause until tomorrow, then resume', tomorrowItem && !remindersPaused() && !!pauseItem && pauseItem.submenu.items.length === 2);
       settings.alarms = keepAl;
+      // 9d: mood follows progress vs the time of day (quiet hours 23:00-08:00 = waking 08-23)
+      const keepQ = [settings.quietStart, settings.quietEnd, day.cups];
+      settings.quietStart = '23:00';
+      settings.quietEnd = '08:00';
+      const moodAt = (hh, cups) => {
+        selftestClock = new Date(new Date().setHours(hh, 0, 0, 0)).getTime();
+        day.cups = cups;
+        return catMood();
+      };
+      const moods = { morning0: moodAt(9, 0), evening0: moodAt(20, 0), evening7: moodAt(20, 7), evening6: moodAt(20, 6), goal: moodAt(20, settings.goalCups) };
+      moodTick();
+      await sleep(300);
+      const shownMood = await win.webContents.executeJavaScript('window.__mood || "ok"');
+      applySettings({ moodEnabled: false });
+      const offMood = moodAt(20, 0);
+      applySettings({ moodEnabled: true });
+      record('Stage 9: mood: ok early, sad when well behind in the evening, happy on track / at the goal, off in Settings', moods.morning0 === 'ok' && moods.evening0 === 'sad'
+        && moods.evening7 === 'happy' && moods.evening6 === 'ok' && moods.goal === 'happy' && shownMood === 'happy' && offMood === 'ok', `${JSON.stringify(moods)} page=${shownMood} off=${offMood}`);
+      selftestClock = null;
+      [settings.quietStart, settings.quietEnd, day.cups] = keepQ;
+      moodTick();
       history = keepHist;
       day.partyShownDate = '';
       resetCups('selftest');
