@@ -125,6 +125,7 @@
       place: opts.place, spot: opts.spot, spotColors: look.spotColors, spotAlpha: opts.spotAlpha, overlay: opts.overlay,
       hat: hatOn, // Stage 5: party hat until midnight
       accessories: look.accessories, seasonal: look.seasonal, catName: look.catName, // Stage 8
+      kneadProp: opts.kneadProp, // Stage 10
     });
     g.imageSmoothingEnabled = false;
     g.clearRect(0, 0, cat.width, cat.height);
@@ -344,6 +345,7 @@
     if (name === 'sleep-enter') steps = enterSteps(a.spot);
     if (name === 'wake') steps = wakeSteps(a.spot);
     if (name === 'peek') steps = peekSteps(a.lookDx || 0);
+    if (name === 'knead') steps = ANIMS.knead.map(([p, f, ms]) => [p, f, ms, { kneadProp: a.prop === 'dough' ? 'dough' : 'blanket' }]); // Stage 10: a blanket or dough
     if (!steps) return;
     anim = name;
     api.report('anim', { name, spot: a.spot });

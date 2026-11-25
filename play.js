@@ -8,6 +8,7 @@
   const api = window.playApi;
   const S = window.CatSprite;
   const cv = document.getElementById('play');
+  const stopBtn = document.getElementById('stop');
   const g = cv.getContext('2d');
   window.addEventListener('error', (e) => api.report('error', { message: e.message, line: e.lineno }));
 
@@ -355,9 +356,23 @@
   }
 
   // --- mouse -----------------------------------------------------------------------------------
+  // the Stop button floats above her head and follows her
+  const stopRect = () => {
+    const r = stopBtn.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  };
+  function placeStop() {
+    if (!cat.box) return;
+    const x = Math.round(Math.max(4, Math.min(W - stopBtn.offsetWidth - 4, cat.box.x + cat.box.w / 2 - stopBtn.offsetWidth / 2)));
+    const y = Math.round(Math.max(4, cat.box.y - stopBtn.offsetHeight - 3 * cell));
+    if (stopBtn.style.left !== `${x}px`) stopBtn.style.left = `${x}px`;
+    if (stopBtn.style.top !== `${y}px`) stopBtn.style.top = `${y}px`;
+  }
+  stopBtn.addEventListener('click', () => api.stop('stop button'));
   function updateHover() {
+    placeStop();
     const p = { x: pointer.x, y: pointer.y, w: 1, h: 1 };
-    const over = pointer.inside && (toy.grabbed || hit(p, toyRect(), 8) || hit(p, cat.box, 0));
+    const over = pointer.inside && (toy.grabbed || hit(p, toyRect(), 8) || hit(p, cat.box, 0) || hit(p, stopRect(), 2));
     if (over !== hovering) {
       hovering = over;
       api.hover(over);
@@ -417,7 +432,12 @@
     api.report('flick', { vx: +toy.vx.toFixed(1), vy: +toy.vy.toFixed(1) });
   });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') api.stop('esc'); });
-  document.addEventListener('contextmenu', (e) => e.preventDefault());
+  // right-click on her / the toy: the usual menu (it has "Stop playing")
+  document.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const p = { x: e.clientX, y: e.clientY, w: 1, h: 1 };
+    if (hit(p, cat.box, 0) || hit(p, toyRect(), 8)) api.menu();
+  });
 
   api.onStart(start);
   api.onStop(() => { clearInterval(timer); timer = null; g.clearRect(0, 0, W, H); });
@@ -429,5 +449,6 @@
     catBox: () => cat.box,
     toy: () => ({ x: toy.x, y: toy.y, vx: toy.vx, vy: toy.vy, trail: toy.trail.length }),
     pointerAt: (x, y) => { pointer.x = x; pointer.y = y; pointer.inside = true; pointer.frozen = true; },
+    stopRect: () => stopRect(),
   };
 })();

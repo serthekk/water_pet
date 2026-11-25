@@ -104,6 +104,22 @@
     return e;
   }
   const SIT_BLINK = setCells(SIT, eyeEdits('blink'));
+  // What she kneads (drawn in front of her paws, over her feet): a soft blanket or a ball of
+  // bread / cookie dough with flour. Canvas cells for the sitting cat (centre x 14.5, floor).
+  const KNEAD_PROPS = {
+    blanket: { grid: ['.abaabaabaaba.', 'aaaaaaaaaaaaaa'], colors: { a: '#f7b2c8', b: '#ffffff' } },
+    dough: { grid: ['.KdwddddwdK.', 'KddddddddddK'], colors: { K: '#a0703a', d: '#f2d3a0', w: '#fffdf5' } },
+  };
+  function kneadPropCells(kind) {
+    const p = KNEAD_PROPS[kind];
+    if (!p) return [];
+    const w = p.grid[0].length;
+    const x0 = Math.round(14.5 - w / 2 + 0.5);
+    const y0 = CANVAS.rows - p.grid.length;
+    const cells = [];
+    p.grid.forEach((row, y) => [...row].forEach((ch, x) => { if (p.colors[ch]) cells.push([x0 + x, y0 + y, p.colors[ch]]); }));
+    return cells;
+  }
   // Kneading (Stage 10): blissful squint, one front paw up, then the other
   const KNEAD_A = setCells(SIT, [...eyeEdits('squint'), [4, 17, 'S'], [5, 17, 'S'], [4, 16, 'D'], [5, 16, 'D']]);
   const KNEAD_B = setCells(SIT, [...eyeEdits('squint'), [10, 17, 'S'], [11, 17, 'S'], [10, 16, 'D'], [11, 16, 'D']]);
@@ -671,6 +687,8 @@
       }
     }
     const visible = cat.map((row, y) => row.map((c, x) => (c && !over[y][x] ? c : null)));
+    // Kneading (Stage 10): the blanket / dough in front of her paws
+    if (o.pose === 'knead' && o.kneadProp) paint(over, kneadPropCells(o.kneadProp));
     // Accessories + seasonal outfit (Stage 8): over the cat, under a spot's front edge and
     // under the party hat (which also hides head items). Not part of the hit area.
     let tag = null;
@@ -839,6 +857,7 @@
     const colorsOf = (id) => ({ ...ACCESSORIES[id].colors, ...((acc[id] && acc[id].colors) || {}) });
     const on = (id) => acc[id] && acc[id].on;
     const headBlocked = !!o.hat || o.spot === 'box'; // party hat wins; in the box only the ears show
+    const earBlocked = o.spot === 'box'; // the bow sits on her ear: fine under a party hat
     // neck (band first, so the extras sit on top)
     const [nx, ny, dir, len] = A.neck;
     const band = (col, thick = 1) => {
@@ -908,10 +927,10 @@
         const grid = ITEM_GRIDS[SEASONAL_GRID[s]];
         stamp(grid, SEASONAL[s].colors, Math.round(hx - (grid[0].length - 1) / 2), hy - grid.length + 1);
       }
-      if (on('bow')) {
-        const [bx, by] = A.earR;
-        stamp(ITEM_GRIDS.bow, colorsOf('bow'), bx - 2, by);
-      }
+    }
+    if (!earBlocked && on('bow')) {
+      const [bx, by] = A.earR;
+      stamp(ITEM_GRIDS.bow, colorsOf('bow'), bx - 2, by);
     }
     return { cells, tag };
   }
@@ -986,7 +1005,7 @@
     CANVAS, PARTS, PRESETS, PATTERNS, GARGORL,
     POSES: Object.fromEntries(Object.entries(FRAMES).map(([p, f]) => [p, Object.keys(f)])),
     presetList: () => Object.entries(PRESETS).map(([id, p]) => ({ id, label: p.label, description: p.description || '', unlock: !!p.unlock })),
-    UNLOCKS, unlockText,
+    UNLOCKS, unlockText, KNEAD_PROPS, kneadPropCells,
     render, renderProp, hatPlace, bbox, validate,
     ACCESSORIES, SEASONAL, ACC_IDS, SEASONAL_IDS, cleanAccessories, seasonalFor, accessoryCells, easterSunday, whiskerLines, whiskerSquares, noseRect,
     renderScene, spotCells, SPOT_IDS, SPOT_PARTS, SPOT_DEFAULT_COLORS, SPOT_LABELS, SPOT_CAT, tailColor,

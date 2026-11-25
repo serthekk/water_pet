@@ -1515,17 +1515,19 @@ function eatTreat(source) {
 
 // Kneading: very occasionally, when she has been petted a lot and is relaxed, she makes
 // biscuits for a few seconds (paws in turn, eyes squinted, a soft purr).
-let KNEAD_CHANCE = 0.35;
-function maybeKnead(force) {
+let KNEAD_CHANCE = 0.6;
+const KNEAD_PROPS = ['blanket', 'dough'];
+function maybeKnead(force, prop) {
   const now = Date.now();
   behavior.strokePets = (behavior.strokePets || []).filter((t) => now - t < 120000);
   const relaxed = behavior.state !== 'sleeping' && !nagging && !activeAlarm && !partyActive && !playing() && !stroll;
-  if (!force && !(behavior.strokePets.length >= 3 && relaxed && now - (behavior.lastKneadAt || 0) > 5 * 60000 && Math.random() < KNEAD_CHANCE)) return false;
+  if (!force && !(behavior.strokePets.length >= 2 && relaxed && now - (behavior.lastKneadAt || 0) > 2 * 60000 && Math.random() < KNEAD_CHANCE)) return false;
   behavior.lastKneadAt = now;
   behavior.strokePets = [];
   // after the belly-up of the pet that started it
-  setTimeout(() => { if (behavior.state !== 'sleeping') sendAnim('knead'); }, force ? 0 : 3300);
-  log('KNEADING (making biscuits)');
+  const what = KNEAD_PROPS.includes(prop) ? prop : KNEAD_PROPS[Math.floor(Math.random() * KNEAD_PROPS.length)];
+  setTimeout(() => { if (behavior.state !== 'sleeping') sendAnim('knead', { prop: what }); }, force ? 0 : 3300);
+  log(`KNEADING a ${what}`);
   return true;
 }
 
@@ -1812,7 +1814,16 @@ function playMenu(source) {
 let PARTY_MS = 20000; // the selftest shortens it
 let partyActive = null; // { source, until }
 let partyTimer = null;
-const hatOn = () => !!partyActive || day.partyShownDate === todayKey();
+// The hat wins over head items only DURING the party; afterwards (until midnight) she keeps
+// it on unless she wears something on her head herself (a crown, a seasonal hat).
+const HEAD_ITEMS = ['crown', 'goldcrown', 'flowercrown'];
+function wearsHeadItem() {
+  const worn = wornAccessories(settings.accessories);
+  if (HEAD_ITEMS.some((id) => worn[id] && worn[id].on)) return true;
+  const s = seasonalNow();
+  return !!(s && CatSprites.SEASONAL[s] && CatSprites.SEASONAL[s].slot === 'head');
+}
+const hatOn = () => !!partyActive || (day.partyShownDate === todayKey() && !wearsHeadItem());
 
 async function startParty(source) {
   checkDayRollover();
@@ -3401,6 +3412,7 @@ function buildContextMenu() {
     ...pauseMenuItems('menu'),
     partyActive ? { label: 'Stop the party', click: () => endParty('menu') } : { label: 'Test party 🎉', click: () => startParty('test') },
     playMenu('menu'),
+    { label: 'Knead a blanket or some dough 🍞', click: () => maybeKnead(true) },
     ...(activeAlarm ? [{ label: 'Dismiss alarm', click: () => dismissAlarm('menu') }] : []),
     ...(nagging ? [{ label: 'Dismiss reminder', click: () => dismissReminder('menu') }] : []),
     { type: 'separator' },
@@ -3635,6 +3647,14 @@ function registerIpc() {
     playWin.setIgnoreMouseEvents(playIgnoring, { forward: true });
   });
   ipcMain.on('play:stop', (e, reason) => { if (fromPlay(e)) stopPlay(String(reason || 'page')); });
+  // right-click on her in play: the usual menu (the desktop cat is hidden), with "Stop playing"
+  ipcMain.on('play:menu', (e) => { if (fromPlay(e)) popupMenu(buildContextMenu(), 'menu'); });
+  // a click into the play area: take the keyboard so Esc works (her click allows it)
+  ipcMain.on('play:focus', (e) => {
+    if (!fromPlay(e)) return;
+    playWin.focus();
+    playWin.webContents.focus();
+  });
   // our own menu (menu.html)
   const fromMenu = (e) => !!menuWin && !menuWin.isDestroyed() && e.sender === menuWin.webContents;
   const fromCatcher = (e) => !!catcherWin && !catcherWin.isDestroyed() && e.sender === catcherWin.webContents;
@@ -4270,6 +4290,20 @@ async function runSelftest() {
       await sleep(800);
       record('Stage 6: a reminder ends play (the overlay closes, the desktop cat is back)', !playWin && win.isVisible());
       endReminder('selftest');
+      // right-click on her in play opens the usual menu (with "Stop playing"); the ⏹ Stop button ends play
+      startPlay('ball', 'selftest');
+      await waitFor((r) => r.type === 'play:ready', 8000);
+      await sleep(900);
+      const cb6 = await pj('window.__playDebug.catBox()');
+      if (cb6) await pj(`document.dispatchEvent(new MouseEvent('contextmenu', { clientX: ${Math.round(cb6.x + cb6.w / 2)}, clientY: ${Math.round(cb6.y + cb6.h / 2)}, bubbles: true }))`);
+      await sleep(500);
+      const playMenuOk = !!menuShown && menuShown.model.items.some((i) => i.label === 'Stop playing');
+      hideMenu('selftest');
+      const sr6 = await pj('window.__playDebug.stopRect()');
+      await pj(`document.getElementById('stop').click()`);
+      await sleep(800);
+      record('Stage 6: in play, right-click on her opens the menu (Stop playing) and the ⏹ Stop button above her ends play', playMenuOk && !!sr6 && sr6.w > 20 && !playWin && win.isVisible(),
+        `menu=${playMenuOk} stop=${JSON.stringify(sr6)} playing=${!!playWin}`);
       // "Stop playing": the cat window comes back where she ended up, same size, saved
       startPlay('ball', 'selftest');
       await waitFor((r) => r.type === 'play:ready', 8000);
@@ -4429,7 +4463,25 @@ async function runSelftest() {
       const kneadAnim = reports.find((r) => r.type === 'anim' && r.data.name === 'knead');
       record('Stage 10: lots of petting -> she makes biscuits (knead anim + soft purr), not again for a while', kn && !!kneadAnim && reports.some((r) => r.type === 'purr')
         && !maybeKnead(), `knead=${kn} anim=${!!kneadAnim}`);
-      KNEAD_CHANCE = 0.35;
+      const blanket = CatSprites.renderScene({ pose: 'knead', frame: 'a', facing: 1, look: {}, kneadProp: 'blanket' }).over.flat().filter((c) => c === CatSprites.KNEAD_PROPS.blanket.colors.a).length;
+      const dough = CatSprites.renderScene({ pose: 'knead', frame: 'b', facing: 1, look: {}, kneadProp: 'dough' }).over.flat().filter((c) => c === CatSprites.KNEAD_PROPS.dough.colors.d).length;
+      record('Stage 10: she kneads a blanket or bread dough (drawn under her paws); menu "Knead a blanket or some dough 🍞"', blanket > 10 && dough > 10
+        && buildContextMenu().items.some((i) => i.label === 'Knead a blanket or some dough 🍞'), `blanket=${blanket} dough=${dough}`);
+      // the party hat wins only DURING the party; afterwards her own head items win; the bow always shows
+      day.partyShownDate = today;
+      partyActive = null;
+      applySettings({ accessories: { crown: { on: true } } });
+      const crownAfterParty = !hatOn();
+      partyActive = { source: 'selftest', until: Date.now() + 1000 };
+      const hatDuringParty = hatOn();
+      partyActive = null;
+      applySettings({ accessories: {} });
+      const hatWithoutCrown = hatOn();
+      const bowUnderHat = CatSprites.accessoryCells('sit', 'sit', 1, null, { accessories: { bow: { on: true } }, hat: true }).cells.length > 0;
+      record('Stage 8/10: after the party her crown shows instead of the party hat; during it the hat wins; the bow always shows', crownAfterParty && hatDuringParty && hatWithoutCrown && bowUnderHat,
+        `after=${crownAfterParty} during=${hatDuringParty} plain=${hatWithoutCrown} bow=${bowUnderHat}`);
+      day.partyShownDate = '';
+      KNEAD_CHANCE = 0; // no surprise kneading during the later pose / petting checks
       await sleep(3500);
       // clean up
       history = keepH;
@@ -4987,7 +5039,8 @@ async function runSelftest() {
         await shot(`breed-${b}`);
       }
       record('every breed draws in the cat window', looks.length === BREED_IDS.length, looks.join(','));
-      applySettings({ unlockAllItems: false });
+      applySettings({ unlockAllItems: false, breed: 'gargorl' }); // the later checks expect her (grey whiskers)
+      await sleep(200);
       applySettings({ breed: 'fainu', tail: true });
       await sleep(200);
 
