@@ -29,8 +29,11 @@ body.catcher { width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.01); }
   border: 2px solid var(--ink);
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22), 3px 3px 0 color-mix(in srgb, var(--ink) 18%, transparent);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto; /* only when the screen is too small for the whole menu */
 }
+.menu::-webkit-scrollbar { width: 6px; }
+.menu::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
 /* the theme's colour stripe along the top */
 .menu::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--grad); }
 

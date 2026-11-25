@@ -195,7 +195,9 @@
   const toyRect = () => ({ x: toy.x - toy.w / 2, y: toy.y - toy.h / 2, w: toy.w, h: toy.h });
   const hit = (a, b, pad = 0) => a && b && a.x - pad < b.x + b.w && a.x + a.w + pad > b.x && a.y - pad < b.y + b.h && a.y + a.h + pad > b.y;
 
+  let catHeld = false; // selftest: keep her still (so she doesn't bat the toy away)
   function catBrain(dt) {
+    if (catHeld) return;
     cat.t += dt;
     cat.frameT += dt;
     const centre = cat.box ? cat.box.x + cat.box.w / 2 : cat.x + 15 * cell;
@@ -507,6 +509,7 @@
     pointerAt: (x, y) => { pointer.x = x; pointer.y = y; pointer.inside = true; pointer.frozen = true; },
     stopRect: () => stopRect(),
     stopHome: () => stopHome,
+    holdCat: (on) => { catHeld = !!on; },
     state: () => ({ pointer: { x: pointer.x, y: pointer.y, inside: pointer.inside, frozen: !!pointer.frozen }, hovering }),
   };
 })();

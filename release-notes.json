@@ -2,7 +2,7 @@
   "_comment": "Shown in the app's \"What's new\" window and used as the GitHub release text (release.yml). Add the new version at the TOP before tagging it. Newest first. icon: one emoji; text: one short line.",
   "releases": [
     {
-      "version": "1.0.0",
+      "version": "1.0.1",
       "date": "2026-11-25",
       "title": "WaterCat 1.0: a whole lot of new cat",
       "items": [

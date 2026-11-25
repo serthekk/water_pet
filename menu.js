@@ -68,6 +68,8 @@
   }
 
   api.onShow((m) => {
+    // a small screen: the menu scrolls inside instead of being cut off
+    box.style.maxHeight = Number.isFinite(m.maxH) ? `${Math.max(120, m.maxH - 20)}px` : '';
     box.replaceChildren();
     build(m.items, box);
     collectRows();

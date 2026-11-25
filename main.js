@@ -3317,7 +3317,7 @@ function ensureMenuWin() {
   themeOnLoad(w);
   w.webContents.on('will-navigate', (e) => e.preventDefault());
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  w.webContents.on('did-finish-load', () => { if (menuShown && menuWin === w) w.webContents.send('menu:show', { items: menuData(menuShown.model), source: menuShown.source }); });
+  w.webContents.on('did-finish-load', () => { if (menuShown && menuWin === w) w.webContents.send('menu:show', { items: menuData(menuShown.model), source: menuShown.source, maxH: menuShown.maxH }); });
   w.on('blur', () => hideMenu('menu lost focus'));
   w.on('closed', () => { if (menuWin === w) { menuWin = null; menuShown = null; } });
   w.loadFile(path.join(__dirname, 'menu.html'));
@@ -3380,8 +3380,11 @@ function showCatcher() {
 
 function popupMenu(model, source) {
   const w = ensureMenuWin();
-  menuShown = { model, source, anchor: screen.getCursorScreenPoint(), x: null, y: null };
-  if (!w.webContents.isLoading()) w.webContents.send('menu:show', { items: menuData(model), source });
+  const anchor = screen.getCursorScreenPoint();
+  // never taller than the screen: on a small screen the menu scrolls inside
+  const maxH = screen.getDisplayNearestPoint(anchor).workArea.height;
+  menuShown = { model, source, anchor, x: null, y: null, maxH };
+  if (!w.webContents.isLoading()) w.webContents.send('menu:show', { items: menuData(model), source, maxH });
   log(`menu opened (${source})`);
   return menuShown;
 }
@@ -4285,10 +4288,12 @@ async function runSelftest() {
       const purred = reports.some((r) => r.type === 'play:purr');
       record('Stage 6: the cat goes for the toy, crouches, pounces and catches it (+ purr)', !!caught && caught.data.toy === 'ball' && purred, caught ? JSON.stringify(caught.data) : 'no catch');
       // ball physics: dropped from high up it lands on the bottom edge
-      await pj(`window.__playDebug.putToy(${Math.round(area.width * 0.8)}, ${pr.data.h - 500})`);
+      await pj('window.__playDebug.holdCat(true)'); // on a small screen she'd keep batting it
+      await pj(`window.__playDebug.putToy(${Math.round(area.width * 0.8)}, ${Math.max(60, pr.data.h - 500)})`);
       await sleep(3000);
       const bt = await pj('window.__playDebug.toy()');
       record('Stage 6: the ball falls, bounces and settles on the bottom edge', !!bt && bt.y > pr.data.h - 40 && Math.abs(bt.vy) < 2, JSON.stringify(bt));
+      await pj('window.__playDebug.holdCat(false)');
       // over the toy the overlay takes clicks (to flick it), elsewhere they go through
       // (main watches the mouse itself: move the selftest's mouse over the toy, then away)
       const bt2 = await pj('window.__playDebug.toy()');
@@ -4574,7 +4579,9 @@ async function runSelftest() {
     const h0 = menuWin.getBounds().height;
     await mwc.executeJavaScript(`[...document.querySelectorAll('.item')].find((r) => r.textContent.includes('Sleeping spot')).click()`);
     await sleep(250);
-    record('menu: submenu opens in place (window grows)', menuWin.getBounds().height > h0, `${h0} -> ${menuWin.getBounds().height}`);
+    const mArea = screen.getDisplayNearestPoint(menuShown.anchor).workArea;
+    const scrolls = await mwc.executeJavaScript(`(() => { const m = document.getElementById('menu'); return m.scrollHeight > m.clientHeight; })()`);
+    record('menu: submenu opens in place (window grows; on a small screen it scrolls inside)', menuWin.getBounds().height > h0 || (h0 >= mArea.height - 2 && scrolls), `${h0} -> ${menuWin.getBounds().height} (screen ${mArea.height}, scrolls ${scrolls})`);
     // clicking the cat (which never takes focus) closes the menu
     onOsLeftDown();
     record('menu closes when the cat is clicked', !menuShown && !menuWin.isVisible());
