@@ -835,6 +835,10 @@
 
   api.onPetted((p) => {
     const waking = anim === 'wake'; // petted awake: let her stretch out of her spot first
+    if (p.kind === 'streak') { // Stage 9 milestone: hearts only (main shows the bubble)
+      hearts(6);
+      return;
+    }
     if (p.kind === 'cup') {
       if (!waking) playAnim('happy');
       hearts(3);

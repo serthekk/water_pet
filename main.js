@@ -1132,6 +1132,7 @@ function applySettings(partial) {
     log(`renamed to ${settings.catName}; descriptor stays "${settings.catDescriptor}" until edited`);
   }
   if (changed.includes('alarms')) alarmsEdited(prev.alarms);
+  if (changed.includes('goalCups') && historyLoaded) recordDay(); // today's goal in the history
   if (changed.includes('theme') || (changed.includes('customTheme') && settings.theme === 'custom')) broadcastTheme();
   if (changed.includes('taskbarWalk')) {
     if (!settings.taskbarWalk) endStroll('turned off');
@@ -1189,7 +1190,9 @@ function loadCups() {
 
 function saveCups() {
   writeJsonSafe(cupsFile(), day);
+  if (historyLoaded) recordDay(); // Stage 9: today's entry follows
 }
+let historyLoaded = false;
 
 function checkDayRollover() {
   const today = todayKey();
@@ -1253,6 +1256,7 @@ function addCup(source) {
   pet('cup', source);
   // Stage 5: the first time today she reaches her goal -> party
   if (day.cups >= settings.goalCups && day.partyShownDate !== day.date) startParty('goal');
+  maybeCelebrateStreak(); // Stage 9: 3 / 7 / 14 / 30 / 60 / 100 days
 }
 
 function undoCup(source) {
@@ -1312,6 +1316,75 @@ function pet(kind, source) {
   if (win && !win.isDestroyed()) win.webContents.send('petted', { kind, quiet: isQuietNow() || wasAsleep, petsToday: pc.today, chirp: settings.cupChirp });
   pushState();
   return { ok: true, petsToday: pc.today };
+}
+
+// --- Day history + streaks (Stage 9) ---------------------------------------------
+// history.json: { days: { 'YYYY-MM-DD': { cups, goal, pets } }, bestStreak, celebrated }.
+// Today's entry follows every cup / undo / reset / pet. A streak = days in a row with
+// cups >= that day's goal (today counts once it is reached; until then it runs to
+// yesterday). Milestones get one quiet celebration each.
+const historyFile = () => path.join(dataDir(), 'history.json');
+const HISTORY_DAYS = 400;
+const STREAK_MILESTONES = [3, 7, 14, 30, 60, 100];
+let history = { days: {}, bestStreak: 0, celebrated: {} };
+const DAY_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function addDays(key, n) {
+  const [y, m, d] = key.split('-').map(Number);
+  return todayKey(new Date(y, m - 1, d + n));
+}
+function loadHistory() {
+  const raw = readJsonSafe(historyFile(), {});
+  const days = {};
+  if (raw.days && typeof raw.days === 'object') {
+    for (const [k, v] of Object.entries(raw.days)) {
+      if (DAY_KEY_RE.test(k) && v && typeof v === 'object') days[k] = { cups: nonNegInt(v.cups), goal: Math.max(1, nonNegInt(v.goal) || settings.goalCups), pets: nonNegInt(v.pets) };
+    }
+  }
+  const celebrated = {};
+  if (raw.celebrated && typeof raw.celebrated === 'object') for (const [k, v] of Object.entries(raw.celebrated)) if (/^\d+$/.test(k) && DAY_KEY_RE.test(v)) celebrated[k] = v;
+  history = { days, bestStreak: nonNegInt(raw.bestStreak), celebrated };
+  historyLoaded = true;
+  recordDay(); // first run: today from cups.json
+  log(`history loaded: ${Object.keys(days).length} day(s), streak ${streak()}, best ${history.bestStreak}`);
+}
+function recordDay() {
+  const pets = Object.values(day.pets || {}).reduce((a, p) => a + nonNegInt(p && p.today), 0);
+  history.days[day.date] = { cups: day.cups, goal: settings.goalCups, pets };
+  const keys = Object.keys(history.days).sort();
+  for (const k of keys.slice(0, Math.max(0, keys.length - HISTORY_DAYS))) delete history.days[k];
+  history.bestStreak = Math.max(history.bestStreak, streak());
+  writeJsonSafe(historyFile(), history);
+}
+const goalMet = (key) => {
+  const d = history.days[key];
+  return !!d && d.cups >= d.goal;
+};
+function streak(today = todayKey()) {
+  let k = goalMet(today) ? today : addDays(today, -1);
+  let n = 0;
+  while (goalMet(k) && n < 10000) {
+    n += 1;
+    k = addDays(k, -1);
+  }
+  return n;
+}
+const streakLine = () => {
+  const n = streak();
+  return n ? `Streak: ${n} day${n === 1 ? '' : 's'} 🔥` : 'Streak: reach your goal to start one';
+};
+// After a cup: a milestone reached today -> one quiet bubble + hearts (no sound).
+function maybeCelebrateStreak() {
+  const n = streak();
+  if (!goalMet(day.date) || !STREAK_MILESTONES.includes(n) || history.celebrated[n] === day.date) return false;
+  history.celebrated[n] = day.date;
+  writeJsonSafe(historyFile(), history);
+  log(`STREAK MILESTONE: ${n} days`);
+  if (win && !win.isDestroyed() && win.isVisible()) {
+    win.webContents.send('bubble-intro', { text: `🔥 ${n}-day streak! So proud of you 💛`, kind: 'streak' });
+    win.webContents.send('petted', { kind: 'streak', quiet: true });
+  }
+  return true;
 }
 
 // --- Party (Stage 5) -----------------------------------------------------------
@@ -2812,6 +2885,7 @@ function buildContextMenu() {
     ...updateMenuItems(),
     ...catHeaderItems('menu'),
     { label: `Pets today: ${petsOf().today}`, enabled: false },
+    { label: streakLine(), enabled: false },
     switchCatMenu('menu'),
     { type: 'separator' },
     { label: 'Undo last cup', click: () => undoCup('menu') },
@@ -2860,6 +2934,7 @@ function updateTrayMenu() {
   lastTrayMenu = menuModel([
     ...updateMenuItems(),
     ...catHeaderItems('tray'),
+    { label: streakLine(), enabled: false },
     { type: 'separator' },
     { label: visible ? 'Hide cat' : 'Show cat', click: () => (visible ? hideCat('tray') : showCat()) },
     switchCatMenu('tray'),
@@ -3456,6 +3531,35 @@ async function runSelftest() {
       STROLL_STEP = 3;
       setWinPos(b0.x, b0.y);
       await sleep(200);
+    }
+
+    // 0d. Stage 9a: day history + streaks
+    {
+      const keepHist = JSON.parse(JSON.stringify(history));
+      const today = todayKey();
+      resetCups('selftest');
+      record('Stage 9: history.json keeps today', readJsonSafe(historyFile(), {}).days[today] && readJsonSafe(historyFile(), {}).days[today].cups === 0);
+      history = { days: {}, bestStreak: 0, celebrated: {} };
+      for (let i = 1; i <= 6; i++) history.days[addDays(today, -i)] = { cups: 9, goal: 8, pets: 1 };
+      recordDay();
+      const before = streak();
+      record('Stage 9: streak counts up to yesterday while today is not done yet', before === 6 && streakLine() === 'Streak: 6 days 🔥', `${before} "${streakLine()}"`);
+      day.partyShownDate = today; // no party in this check
+      day.cups = settings.goalCups - 1;
+      clearReports();
+      addCup('selftest');
+      const sb = await waitFor((r) => r.type === 'bubble' && r.data.shown && /7-day streak/.test(r.data.text || ''), 2000);
+      record('Stage 9: the 7th day in a row -> streak 7 + one quiet milestone bubble', streak() === 7 && history.celebrated[7] === today && history.bestStreak >= 7 && !!sb
+        && buildContextMenu().items.some((i) => i.label === 'Streak: 7 days 🔥'), `streak=${streak()} bubble=${!!sb}`);
+      clearReports();
+      addCup('selftest');
+      await sleep(300);
+      record('Stage 9: a milestone is celebrated once', !reports.some((r) => r.type === 'bubble' && /streak/.test(r.data.text || '')));
+      delete history.days[addDays(today, -3)];
+      record('Stage 9: a missed day breaks the streak', streak() === 3, String(streak()));
+      history = keepHist;
+      day.partyShownDate = '';
+      resetCups('selftest');
     }
 
     // 1. Real (synthetic OS-level) click on the cat -> +1 cup, meow
@@ -5739,6 +5843,7 @@ app.whenReady().then(() => {
     setWinSizeVars();
     log(`active cat: ${settings.activeCatId} "${settings.catName}" - ${catLabel(activeCat())}`);
     loadCups();
+    loadHistory(); // Stage 9: per-day history (streaks, Stats)
     loadAlarmState();
     registerIpc();
     createWindow();
