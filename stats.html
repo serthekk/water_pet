@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'">
+  <title>Stats</title>
+  <link rel="stylesheet" href="stats.css">
+</head>
+<body>
+  <header>
+    <h1>📊 Stats</h1>
+    <div class="range" role="tablist">
+      <button id="r7" type="button" class="active" data-days="7" role="tab">7 days</button>
+      <button id="r30" type="button" data-days="30" role="tab">30 days</button>
+    </div>
+  </header>
+  <section class="chart-card">
+    <canvas id="chart" width="380" height="190" aria-label="Drinks per day"></canvas>
+    <p class="legend"><span class="key bar"></span> <span id="unit">cups</span> <span class="key today"></span> today <span class="key goal"></span> goal</p>
+  </section>
+  <section class="tiles">
+    <div class="tile"><b id="t-streak">0</b><span>day streak 🔥</span></div>
+    <div class="tile"><b id="t-best">0</b><span>best streak</span></div>
+    <div class="tile"><b id="t-avg7">0</b><span>a day (7 days)</span></div>
+    <div class="tile"><b id="t-avg30">0</b><span>a day (30 days)</span></div>
+    <div class="tile"><b id="t-total">0</b><span id="t-total-l">in total</span></div>
+    <div class="tile"><b id="t-pets">0</b><span>pets in total</span></div>
+    <div class="tile wide"><b id="t-met">0</b><span id="t-met-l">goals reached (last 30 days)</span></div>
+  </section>
+  <footer><button id="close" type="button">Close</button></footer>
+  <script src="stats.js"></script>
+</body>
+</html>

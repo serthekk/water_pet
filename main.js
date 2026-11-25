@@ -1355,6 +1355,7 @@ function recordDay() {
   for (const k of keys.slice(0, Math.max(0, keys.length - HISTORY_DAYS))) delete history.days[k];
   history.bestStreak = Math.max(history.bestStreak, streak());
   writeJsonSafe(historyFile(), history);
+  statsChanged(); // an open Stats window follows
 }
 const goalMet = (key) => {
   const d = history.days[key];
@@ -1385,6 +1386,71 @@ function maybeCelebrateStreak() {
     win.webContents.send('petted', { kind: 'streak', quiet: true });
   }
   return true;
+}
+
+// Stats window (Stage 9): last 30 days (zero for days without data), streaks, totals.
+let statsWin = null;
+function statsData() {
+  const today = todayKey();
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const k = addDays(today, -i);
+    const d = history.days[k];
+    days.push({ date: k, cups: d ? d.cups : 0, goal: d ? d.goal : settings.goalCups });
+  }
+  const avg = (list) => Math.round((list.reduce((a, d) => a + d.cups, 0) / list.length) * 10) / 10;
+  const totalPets = Object.values(day.pets || {}).reduce((a, p) => a + nonNegInt(p && p.total), 0);
+  return {
+    days,
+    goal: settings.goalCups,
+    word: drinkWord(),
+    streak: streak(),
+    best: Math.max(history.bestStreak, streak()),
+    avg7: avg(days.slice(-7)),
+    avg30: avg(days),
+    totalCups: Object.values(history.days).reduce((a, d) => a + d.cups, 0),
+    totalPets,
+    met30: days.filter((d) => d.cups >= d.goal).length,
+  };
+}
+function statsChanged() {
+  if (statsWin && !statsWin.isDestroyed()) statsWin.webContents.send('stats:changed', statsData());
+}
+function openStats(source) {
+  if (statsWin && !statsWin.isDestroyed()) {
+    bringToFront(statsWin, 'opened again');
+    return statsWin;
+  }
+  statsWin = new BrowserWindow({
+    width: 412,
+    height: 520,
+    useContentSize: true,
+    show: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    title: 'Stats',
+    icon: asset('tray.png'),
+    backgroundColor: '#fff6ea',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'stats-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+    },
+  });
+  statsWin.setMenu(null);
+  themeOnLoad(statsWin);
+  const wc = statsWin.webContents;
+  wc.on('will-navigate', (e) => e.preventDefault());
+  wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+  statsWin.once('ready-to-show', () => (SELFTEST ? statsWin.showInactive() : bringToFront(statsWin, 'opened')));
+  statsWin.on('closed', () => { statsWin = null; });
+  statsWin.loadFile(path.join(__dirname, 'stats.html'));
+  log(`stats window opened (${source})`);
+  return statsWin;
 }
 
 // --- Party (Stage 5) -----------------------------------------------------------
@@ -2329,7 +2395,7 @@ function themeOnLoad(w) {
   w.webContents.on('dom-ready', () => sendTheme(w));
 }
 function broadcastTheme() {
-  for (const w of [settingsWin, customizeWin, infoWin, notesWin, menuWin, feedbackWin]) sendTheme(w);
+  for (const w of [settingsWin, customizeWin, infoWin, notesWin, menuWin, feedbackWin, statsWin]) sendTheme(w);
 }
 
 function openSettings() {
@@ -2903,6 +2969,7 @@ function buildContextMenu() {
     { label: 'Walk along the taskbar', type: 'checkbox', checked: settings.taskbarWalk, click: (item) => applySettings({ taskbarWalk: item.checked }) },
     { label: 'Customize cat…', click: () => openCustomize() },
     { label: 'Settings…', click: () => openSettings() },
+    { label: 'Stats…', click: () => openStats('menu') },
     { type: 'separator' },
     ...versionMenuItems('menu'),
     { type: 'separator' },
@@ -2946,6 +3013,7 @@ function updateTrayMenu() {
     { label: 'Chase the mouse', type: 'checkbox', checked: settings.chaseMouse, click: (item) => applySettings({ chaseMouse: item.checked }) },
     { label: 'Customize cat…', click: () => openCustomize() },
     { label: 'Settings…', click: () => openSettings() },
+    { label: 'Stats…', click: () => openStats('tray') },
     { type: 'separator' },
     ...versionMenuItems('tray'),
     { type: 'separator' },
@@ -3150,6 +3218,7 @@ function registerIpc() {
     switch (String(name)) {
       case 'customize': openCustomize(); return done('customize');
       case 'notes': openNotes('settings'); return done('notes');
+      case 'stats': openStats('settings'); return done('stats');
       case 'report-bug': openFeedback('bug', 'settings'); return done('feedback');
       case 'suggest-idea': openFeedback('idea', 'settings'); return done('feedback');
       case 'test-reminder': fireReminder('test'); return done('test-reminder');
@@ -3201,6 +3270,7 @@ function registerIpc() {
     openNotes('customize');
     return true;
   });
+  ipcMain.handle('stats:get', () => statsData());
   ipcMain.handle('feedback:get', () => feedbackInfo());
   ipcMain.handle('feedback:send', async (e, msg) => {
     if (!feedbackWin || feedbackWin.isDestroyed() || e.sender !== feedbackWin.webContents || !msg || typeof msg !== 'object') return { ok: false, error: 'Not allowed' };
@@ -3259,7 +3329,7 @@ function registerIpc() {
   // bringToFront). Her click gives this process the right to take the foreground.
   ipcMain.on('window:claim-focus', (e) => {
     const w = BrowserWindow.fromWebContents(e.sender);
-    if (w && [settingsWin, customizeWin, notesWin, feedbackWin].includes(w)) bringToFront(w, 'clicked while unfocused');
+    if (w && [settingsWin, customizeWin, notesWin, feedbackWin, statsWin].includes(w)) bringToFront(w, 'clicked while unfocused');
   });
   ipcMain.on('report', (_e, type, data) => {
     log(`renderer: ${type}`, data === undefined ? '' : data);
@@ -3557,6 +3627,29 @@ async function runSelftest() {
       record('Stage 9: a milestone is celebrated once', !reports.some((r) => r.type === 'bubble' && /streak/.test(r.data.text || '')));
       delete history.days[addDays(today, -3)];
       record('Stage 9: a missed day breaks the streak', streak() === 3, String(streak()));
+      // 9b: Stats window from the menu: 30 days of bars, tiles, live update
+      clearReports();
+      buildContextMenu().items.find((i) => i.label === 'Stats…').click();
+      const sr = await waitFor((r) => r.type === 'stats:ready', 8000);
+      const sd = await waitFor((r) => r.type === 'stats:drawn', 3000);
+      const tiles = statsWin ? await statsWin.webContents.executeJavaScript(`({ streak: document.getElementById('t-streak').textContent, met: document.getElementById('t-met').textContent })`) : null;
+      record('Stage 9: Stats window: 30 days, 7-day chart drawn, streak tile', !!sr && sr.data.days === 30 && !!sd && sd.data.bars === 7 && !!tiles && tiles.streak === '3', JSON.stringify(tiles));
+      clearReports();
+      if (statsWin) await statsWin.webContents.executeJavaScript(`document.getElementById('r30').click()`);
+      const s30 = await waitFor((r) => r.type === 'stats:drawn' && r.data.range === 30, 2000);
+      clearReports();
+      addCup('selftest');
+      const live = await waitFor((r) => r.type === 'stats:drawn', 2000);
+      record('Stage 9: Stats: 30-day view, and it follows a new drink live', !!s30 && s30.data.bars === 30 && !!live && live.data.today === day.cups, live ? JSON.stringify(live.data) : 'no redraw');
+      try {
+        if (statsWin) {
+          await statsWin.webContents.executeJavaScript(`document.getElementById('r7').click()`);
+          await sleep(200);
+          fs.writeFileSync(path.join(LOG_DIR, 'selftest-stats.png'), (await statsWin.webContents.capturePage()).toPNG());
+        }
+      } catch (err) { log('stats screenshot failed', err); }
+      if (statsWin) statsWin.close();
+      await sleep(300);
       history = keepHist;
       day.partyShownDate = '';
       resetCups('selftest');
@@ -3889,7 +3982,7 @@ async function runSelftest() {
       record('Settings: look preview + "Customize cat…" button (look editing moved)', previewInk > 500 && hasCustomizeBtn, `previewPixels=${previewInk}`);
       const layout = await swc.executeJavaScript(`({ slider: !!document.getElementById('catSize'), tools: document.querySelectorAll('#toolbar button[data-tip]').length,
         tips: document.querySelectorAll('.tip-host .tip').length, themes: document.querySelectorAll('#themes .theme').length })`);
-      record('Settings: no size slider; quick-action toolbar, ? tips and colour themes', !layout.slider && layout.tools === 6 && layout.tips >= 8 && layout.themes === Themes.IDS.length, JSON.stringify(layout));
+      record('Settings: no size slider; quick-action toolbar, ? tips and colour themes', !layout.slider && layout.tools === 7 && layout.tips >= 8 && layout.themes === Themes.IDS.length, JSON.stringify(layout));
       clearReports();
       await swc.executeJavaScript(`document.querySelector('#themes .theme[data-theme="harvest"]').click()`);
       await waitFor((r) => r.type === 'settings:saved' && r.data.partial.theme === 'harvest', 3000);
