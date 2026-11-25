@@ -133,6 +133,10 @@
     kit.x = cat.x - 8 * cell;
     hearts = [];
     dirty = [];
+    // Stop button: just right of where she sat (her grid is 30 cells wide; she sits in cells 8-21)
+    stopSaved = o.stopPos && Number.isFinite(o.stopPos.x) && Number.isFinite(o.stopPos.y) ? o.stopPos : null;
+    stopHome = { x: cat.x + 23 * cell, y: Math.max(10, cat.y + 6 * cell) };
+    stopDrag = null;
     g.clearRect(0, 0, W, H);
     clearInterval(timer);
     timer = setInterval(frame, 33);
@@ -356,30 +360,79 @@
   }
 
   // --- mouse -----------------------------------------------------------------------------------
-  // the Stop button floats above her head and follows her
+  // the Stop button
   const stopRect = () => {
     const r = stopBtn.getBoundingClientRect();
     return { x: r.left, y: r.top, w: r.width, h: r.height };
   };
+  // It stays in one place (it doesn't run off with her): by default just right of where she
+  // sat before playing; she can drag it anywhere (saved), a right-click puts it back.
+  let stopHome = null; // { x, y } default spot (px)
+  let stopSaved = null; // { x, y } 0..1 of the screen, her own spot
+  let stopDrag = null; // { sx, sy, bx, by, moved }
   function placeStop() {
-    if (!cat.box) return;
-    const x = Math.round(Math.max(4, Math.min(W - stopBtn.offsetWidth - 4, cat.box.x + cat.box.w / 2 - stopBtn.offsetWidth / 2)));
-    const y = Math.round(Math.max(4, cat.box.y - stopBtn.offsetHeight - 3 * cell));
+    if (stopDrag) return;
+    const bw = stopBtn.offsetWidth;
+    const bh = stopBtn.offsetHeight;
+    const want = stopSaved ? { x: stopSaved.x * W, y: stopSaved.y * H } : stopHome || { x: W / 2 - bw / 2, y: 10 };
+    const x = Math.round(Math.max(4, Math.min(W - bw - 4, want.x)));
+    const y = Math.round(Math.max(4, Math.min(H - bh - 4, want.y)));
     if (stopBtn.style.left !== `${x}px`) stopBtn.style.left = `${x}px`;
     if (stopBtn.style.top !== `${y}px`) stopBtn.style.top = `${y}px`;
   }
-  stopBtn.addEventListener('click', () => api.stop('stop button'));
+  // press + release without moving = stop; press + move = drag it somewhere else
+  stopBtn.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    stopDrag = { sx: e.clientX, sy: e.clientY, bx: stopBtn.offsetLeft, by: stopBtn.offsetTop, moved: false };
+    try { stopBtn.setPointerCapture(e.pointerId); } catch (_) { /* optional */ }
+    // take the whole screen's clicks right away, so the drag can't slip off the button
+    lastRects = 'drag';
+    api.rects([{ x: 0, y: 0, w: W, h: H }]);
+  });
+  stopBtn.addEventListener('pointermove', (e) => dragStop(e.clientX, e.clientY));
+  function dragStop(cx, cy) {
+    if (!stopDrag) return;
+    const dx = cx - stopDrag.sx;
+    const dy = cy - stopDrag.sy;
+    if (!stopDrag.moved && Math.hypot(dx, dy) < 6) return;
+    stopDrag.moved = true;
+    stopBtn.style.left = `${Math.round(Math.max(4, Math.min(W - stopBtn.offsetWidth - 4, stopDrag.bx + dx)))}px`;
+    stopBtn.style.top = `${Math.round(Math.max(4, Math.min(H - stopBtn.offsetHeight - 4, stopDrag.by + dy)))}px`;
+  }
+  stopBtn.addEventListener('pointerup', (e) => {
+    if (!stopDrag) return;
+    const d = stopDrag;
+    stopDrag = null;
+    if (!d.moved) return api.stop('stop button');
+    stopSaved = { x: +(stopBtn.offsetLeft / W).toFixed(4), y: +(stopBtn.offsetTop / H).toFixed(4) };
+    api.stopPos(stopSaved);
+    api.report('stop-moved', stopSaved);
+  });
+  let lastRects = '';
   function updateHover() {
     placeStop();
     const p = { x: pointer.x, y: pointer.y, w: 1, h: 1 };
-    const over = pointer.inside && (toy.grabbed || hit(p, toyRect(), 8) || hit(p, cat.box, 0) || hit(p, stopRect(), 2));
-    if (over !== hovering) {
-      hovering = over;
-      api.hover(over);
+    // main watches the real mouse and lets clicks reach these (the whole screen while she drags the toy)
+    const big = { x: 0, y: 0, w: W, h: H };
+    const rects = toy.grabbed || stopDrag ? [big] : [toyRect(), cat.box, stopRect()].filter(Boolean).map((r) => ({ x: Math.round(r.x - 6), y: Math.round(r.y - 6), w: Math.round(r.w + 12), h: Math.round(r.h + 12) }));
+    const key = JSON.stringify(rects);
+    if (key !== lastRects) {
+      lastRects = key;
+      api.rects(rects);
     }
-    document.body.classList.toggle('grab', over && (toyKind === 'ball' || toyKind === 'yarn') && !toy.grabbed && hit(p, toyRect(), 8));
+    hovering = pointer.inside && (toy.grabbed || hit(p, toyRect(), 8) || hit(p, cat.box, 0) || hit(p, stopRect(), 2));
+    document.body.classList.toggle('grab', (toyKind === 'ball' || toyKind === 'yarn') && !toy.grabbed && hit(p, toyRect(), 8));
   }
-  window.addEventListener('mousemove', (e) => {
+  let buttonDown = false;
+  window.addEventListener('mousedown', () => { buttonDown = true; }, true);
+  window.addEventListener('mouseup', () => { buttonDown = false; }, true);
+  // the pointer: from main (it watches the real mouse) and from real moves while we take clicks
+  api.onPointer((pt) => moved({ clientX: pt.x, clientY: pt.y, screenX: pt.x, screenY: pt.y, buttons: buttonDown ? 1 : 0 }));
+  window.addEventListener('mousemove', (e) => moved(e));
+  function moved(e) {
+    if (stopDrag) dragStop(e.clientX, e.clientY); // the pointer from main moves the Stop button too
     if (pointer.frozen) return; // selftest: a fake pointer, the real mouse is ignored
     pointer.x = e.clientX;
     pointer.y = e.clientY;
@@ -405,8 +458,9 @@
         });
       }
     } else lastMove = null;
-  });
-  document.addEventListener('mouseleave', () => { pointer.inside = false; });
+  }
+  // (no 'mouseleave' handling: switching click-through on / off makes Windows send fake leaves,
+  // which made the overlay give the click away again - the Stop button never got it)
   window.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
     if ((toyKind === 'ball' || toyKind === 'yarn') && hit({ x: e.clientX, y: e.clientY, w: 1, h: 1 }, toyRect(), 8)) {
@@ -436,6 +490,8 @@
   document.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const p = { x: e.clientX, y: e.clientY, w: 1, h: 1 };
+    // right-click on the Stop button: put it back by the cat
+    if (hit(p, stopRect(), 2)) { stopSaved = null; api.stopPos(null); placeStop(); api.report('stop-moved', null); return; }
     if (hit(p, cat.box, 0) || hit(p, toyRect(), 8)) api.menu();
   });
 
@@ -450,5 +506,7 @@
     toy: () => ({ x: toy.x, y: toy.y, vx: toy.vx, vy: toy.vy, trail: toy.trail.length }),
     pointerAt: (x, y) => { pointer.x = x; pointer.y = y; pointer.inside = true; pointer.frozen = true; },
     stopRect: () => stopRect(),
+    stopHome: () => stopHome,
+    state: () => ({ pointer: { x: pointer.x, y: pointer.y, inside: pointer.inside, frozen: !!pointer.frozen }, hovering }),
   };
 })();

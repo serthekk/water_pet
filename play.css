@@ -5,3 +5,4 @@ body.grabbing { cursor: grabbing; }
 
 #stop { position: absolute; padding: 2px 9px; font: 600 12px 'Segoe UI', sans-serif; color: #3b2f2f; background: #fff6ea; border: 2px solid #3b2f2f; border-radius: 10px; cursor: pointer; opacity: 0.85; }
 #stop:hover { background: #f4a6b8; opacity: 1; }
+#stop { font-size: 13px; padding: 4px 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
