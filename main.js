@@ -133,6 +133,11 @@ const DEFAULT_SETTINGS = {
   skippedVersion: '', // 'Skip this version'
   lastRunVersion: '', // the app version that ran last (an update shows one 'I got an update!' bubble)
   idleAnimations: true,
+  // Stage 9: reminder lines (the first = her original, shown about half the time when rotating)
+  reminderMessages: null, // filled from REMINDER_LINES below
+  rotateReminders: true,
+  meowCapMinutes: 60, // at most one full reminder meow this often (0 = no cap); others chirp softly
+  remindersPausedUntil: 0, // ms timestamp; 0 = not paused
   eyesFollow: true, // Stage 7: her pupils follow the mouse
   taskbarWalk: false, // Stage 7: now and then she strolls along the bottom of the screen
   chaseMouse: false,
@@ -359,6 +364,20 @@ function applyWinSize() {
 
 const HOTKEY = 'Control+Alt+W';
 const BUBBLE_TEXT = 'Its time to get wet girl 💦';
+// Stage 9: lines that rotate with her original one (editable: settings.json reminderMessages)
+const REMINDER_LINES = [
+  BUBBLE_TEXT,
+  'Sip sip hooray! 💧',
+  'Hydration check, cutie 💦',
+  'Your cat says: drink some water 🐾',
+  'Psst... you look thirsty 👀',
+  'Time for a little sip, my love 💙',
+  'Stay hydrated, stay cute ✨',
+  'Meow means drink! 💧',
+  'Water break! Your plants would be proud 🌱',
+  'Refill time, superstar 🥤',
+  'A sip for you, a purr for me 😺',
+];
 const TICK_MS = 15 * 1000;
 
 let win = null;
@@ -488,7 +507,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
     const list = raw.customPresets.map((p) => p && sanitizeCustomPreset(p)).filter(Boolean);
     if (list.length === raw.customPresets.length) s.customPresets = list;
   }
-  for (const k of ['cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
+  for (const k of ['rotateReminders', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
   // older files: sleepWhenIdle / sleepAfterMinutes (old default 10 -> new default 15)
   if (typeof raw.idleSleepEnabled !== 'boolean' && typeof raw.sleepWhenIdle === 'boolean') s.idleSleepEnabled = raw.sleepWhenIdle;
   if (raw.idleSleepMinutes === undefined && Number.isInteger(raw.sleepAfterMinutes) && raw.sleepAfterMinutes !== 10) raw = { ...raw, idleSleepMinutes: Math.min(120, raw.sleepAfterMinutes) };
@@ -526,6 +545,12 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
   if (['stable', 'beta'].includes(raw.updateChannel)) s.updateChannel = raw.updateChannel;
   if (Themes.IDS.includes(raw.theme)) s.theme = raw.theme;
   if (Drinks.IDS.includes(raw.drink)) s.drink = raw.drink;
+  if (Array.isArray(raw.reminderMessages)) {
+    const lines = raw.reminderMessages.filter((t) => typeof t === 'string').map((t) => t.replace(/\s+/g, ' ').trim()).filter((t) => t && t.length <= 120).slice(0, 30);
+    if (lines.length) s.reminderMessages = lines;
+  }
+  if (Number.isInteger(raw.meowCapMinutes) && raw.meowCapMinutes >= 0 && raw.meowCapMinutes <= 600) s.meowCapMinutes = raw.meowCapMinutes;
+  if (Number.isFinite(raw.remindersPausedUntil) && raw.remindersPausedUntil >= 0) s.remindersPausedUntil = Math.round(raw.remindersPausedUntil);
   if (typeof raw.drinkWord === 'string') { const w = raw.drinkWord.replace(/\s+/g, ' ').trim(); if (w.length <= 20) s.drinkWord = w; }
   if (raw.customTheme && typeof raw.customTheme === 'object' && !Array.isArray(raw.customTheme)) s.customTheme = Themes.cleanCustom(raw.customTheme);
   if (typeof raw.lastRunVersion === 'string' && /^(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)?$/.test(raw.lastRunVersion)) s.lastRunVersion = raw.lastRunVersion;
@@ -832,7 +857,8 @@ let trayTipText = '';
 function trayTooltip() {
   const cat = activeCat() || { id: settings.activeCatId, name: settings.catName, gender: settings.catGender };
   const head = `${catLabel(cat)} ${settings.catName} ${GENDER_SYMBOL[settings.catGender] || ''}`.trim();
-  return `${head.slice(0, 90)}\n${day.cups} / ${settings.goalCups} ${drinkWord()}`;
+  const paused = remindersPaused() ? `\n⏸ Reminders paused until ${pausedLine()}` : '';
+  return `${head.slice(0, 90)}\n${day.cups} / ${settings.goalCups} ${drinkWord()}${paused}`;
 }
 
 // Label rule (follows the profile ID, not the name): Gargorl -> "In loving memory of",
@@ -1034,7 +1060,7 @@ function saveSettings() {
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
   'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
-  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk'];
+  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'reminderMessages', 'rotateReminders', 'meowCapMinutes', 'remindersPausedUntil'];
 
 // For the Settings toolbar (Sleep / Wake, Hide / Show).
 function catState() {
@@ -1523,16 +1549,90 @@ let nagging = null; // { since, nextAt, repeats }
 // alarm is dismissed, the water bubble (if still active) comes back.
 function currentBubble() {
   if (activeAlarm) return { kind: 'alarm', text: activeAlarm.text };
-  if (nagging) return { kind: 'water', text: BUBBLE_TEXT };
+  if (nagging) return { kind: 'water', text: nagging.text || BUBBLE_TEXT };
   return null;
 }
 
 // Show the current bubble + hop + meow.
+// Stage 9: water reminders meow in full at most once per meowCapMinutes (the others chirp
+// softly), and while a fullscreen game runs they are quieter (40 %) with a small bubble.
+let lastFullMeowAt = 0;
+let gaming = false; // a fullscreen app / game is in front (polled every 30 s)
 function ring() {
   if (!win || win.isDestroyed()) return;
   const b = currentBubble();
   if (!b) return;
-  win.webContents.send('reminder', { ...b, volume: settings.volume, meowStyle: settings.meowStyle, persistent: true });
+  let sound = 'meow';
+  let factor = 1; // only this meow is quieter (the page keeps her volume)
+  let small = false;
+  if (b.kind === 'water') {
+    const capMs = settings.meowCapMinutes * 60000;
+    if (capMs > 0 && Date.now() - lastFullMeowAt < capMs) sound = 'chirp';
+    if (gaming) {
+      factor = 0.4;
+      small = true;
+    }
+    if (sound === 'meow') lastFullMeowAt = Date.now();
+    if (sound !== 'meow' || gaming) log(`reminder sound: ${sound}${gaming ? ', game in front: 40 % volume + small bubble' : ''}`);
+  }
+  win.webContents.send('reminder', { ...b, volume: settings.volume, factor, meowStyle: settings.meowStyle, persistent: true, sound, small });
+}
+
+// The water reminder's line: her original about half the time, else another one.
+function pickReminderText() {
+  const lines = settings.reminderMessages && settings.reminderMessages.length ? settings.reminderMessages : REMINDER_LINES;
+  if (!settings.rotateReminders || lines.length < 2 || Math.random() < 0.5) return lines[0];
+  return lines[1 + Math.floor(Math.random() * (lines.length - 1))];
+}
+
+// Pause reminders (menu + tray): 1 hour or until tomorrow; alarms still ring.
+const remindersPaused = () => settings.remindersPausedUntil > Date.now();
+function pauseReminders(how, source) {
+  const until = how === 'tomorrow'
+    ? new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate() + 1).getTime()
+    : Date.now() + 60 * 60000;
+  applySettings({ remindersPausedUntil: until });
+  endReminder('paused');
+  log(`reminders paused until ${new Date(until).toLocaleString()} (${source})`);
+  updateTrayMenu();
+  pushState();
+}
+function resumeReminders(source) {
+  if (!settings.remindersPausedUntil) return;
+  applySettings({ remindersPausedUntil: 0 });
+  resetReminderTimer();
+  log(`reminders resumed (${source})`);
+  updateTrayMenu();
+  pushState();
+}
+const pausedLine = () => {
+  const d = new Date(settings.remindersPausedUntil);
+  const tomorrow = d.getHours() === 0 && d.getMinutes() === 0;
+  return tomorrow ? 'tomorrow' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+function pauseMenuItems(source) {
+  if (remindersPaused()) return [{ label: `Resume reminders (paused until ${pausedLine()})`, click: () => resumeReminders(source) }];
+  return [{
+    label: 'Pause reminders',
+    submenu: [
+      { label: 'For 1 hour', click: () => pauseReminders('hour', source) },
+      { label: 'Until tomorrow', click: () => pauseReminders('tomorrow', source) },
+    ],
+  }];
+}
+
+// Fullscreen game check every 30 s (fullscreen.js). A failed check = a normal reminder.
+let gamingTimer = null;
+async function gamePoll() {
+  try {
+    const r = await require('./fullscreen.js').query();
+    const now = r.state !== 0 && [2, 3, 4].includes(r.state);
+    if (r.state === 0 && !gamePoll.failedOnce) { gamePoll.failedOnce = true; log(`fullscreen check failed (${r.name}): reminders stay normal`); }
+    if (now !== gaming) log(`fullscreen game: ${now ? `yes (${r.name})` : 'no'}`);
+    gaming = now;
+  } catch (err) {
+    gaming = false;
+  }
 }
 
 // Show the current bubble quietly, or hide it if nothing is active.
@@ -1561,7 +1661,7 @@ function fireReminder(reason) {
   behavior.lastActive = Date.now();
   closeInfo('reminder');
   const now = Date.now();
-  if (!nagging) nagging = { since: now, nextAt: 0, repeats: 0 };
+  if (!nagging) nagging = { since: now, nextAt: 0, repeats: 0, text: pickReminderText() };
   else nagging.repeats += 1;
   nagging.nextAt = now + settings.repeatMinutes * 60000;
   log(`REMINDER (${reason}) cups=${day.cups}/${settings.goalCups} visible=${win ? win.isVisible() : false} repeat #${nagging.repeats}, next in ${settings.repeatMinutes} min unless a cup is logged`);
@@ -1690,10 +1790,12 @@ function tick() {
   try {
     checkDayRollover();
     checkAlarms();
+    if (settings.remindersPausedUntil && !remindersPaused()) resumeReminders('pause over');
     if (activeAlarm && Date.now() >= activeAlarm.nextAt) {
       activeAlarm.repeats += 1;
       ringAlarm('repeat');
     }
+    if (remindersPaused()) return; // Stage 9: paused (alarms above still ring)
     if (nagging) {
       // Active reminder: repeat until a cup is logged. The normal schedule waits.
       if (Date.now() < nagging.nextAt) return;
@@ -1716,6 +1818,10 @@ function tick() {
 function startTimers() {
   resetReminderTimer();
   tickTimer = setInterval(tick, TICK_MS);
+  if (!SELFTEST && process.platform === 'win32') {
+    gamingTimer = setInterval(gamePoll, 30000); // Stage 9: quieter reminders over a fullscreen game
+    setTimeout(gamePoll, 5000);
+  }
   log(`timers started: reminder every ${settings.reminderMinutes} min, quiet ${settings.quietStart}-${settings.quietEnd}`);
 }
 
@@ -2957,6 +3063,7 @@ function buildContextMenu() {
     { label: 'Undo last cup', click: () => undoCup('menu') },
     { label: "Reset today's cups", click: () => resetCups('menu') },
     { label: 'Test reminder', click: () => fireReminder('test') },
+    ...pauseMenuItems('menu'),
     partyActive ? { label: 'Stop the party', click: () => endParty('menu') } : { label: 'Test party 🎉', click: () => startParty('test') },
     ...(activeAlarm ? [{ label: 'Dismiss alarm', click: () => dismissAlarm('menu') }] : []),
     ...(nagging ? [{ label: 'Dismiss reminder', click: () => dismissReminder('menu') }] : []),
@@ -3008,6 +3115,7 @@ function updateTrayMenu() {
     { label: 'Add a cup', click: () => addCup('tray') },
     { label: 'Undo last cup', click: () => undoCup('tray') },
     { label: "Reset today's count", click: () => resetCups('tray') },
+    ...pauseMenuItems('tray'),
     ...(activeAlarm ? [{ label: 'Dismiss alarm', click: () => dismissAlarm('tray') }] : []),
     ...(nagging ? [{ label: 'Dismiss reminder', click: () => dismissReminder('tray') }] : []),
     { label: 'Chase the mouse', type: 'checkbox', checked: settings.chaseMouse, click: (item) => applySettings({ chaseMouse: item.checked }) },
@@ -3470,6 +3578,11 @@ async function runSelftest() {
     editCat('gargorl', { catLookLocked: false });
     editCat('fainu', { catLookLocked: false });
 
+    // Stage 9c defaults are checked below; the older reminder checks expect her original
+    // line and a full meow every time
+    record('Stage 9: rotating lines + meow cap (60 min) are on by default', DEFAULT_SETTINGS.rotateReminders === true && DEFAULT_SETTINGS.meowCapMinutes === 60);
+    applySettings({ rotateReminders: false, meowCapMinutes: 0 });
+
     // 0. Stage 4: a drink counts as a pet (default: happy squint + hearts + chirp, no click meow)
     record('Stage 4: "happy chirp on a drink" is on by default', DEFAULT_SETTINGS.cupChirp === true && settings.cupChirp === true);
     resetCups('selftest');
@@ -3650,6 +3763,67 @@ async function runSelftest() {
       } catch (err) { log('stats screenshot failed', err); }
       if (statsWin) statsWin.close();
       await sleep(300);
+
+      // 9c: rotating lines (original ~50 %), her own list, meow cap, fullscreen game, pause
+      applySettings({ rotateReminders: true });
+      const picks = Array.from({ length: 400 }, () => pickReminderText());
+      const orig = picks.filter((t) => t === BUBBLE_TEXT).length / picks.length;
+      const kinds = new Set(picks).size;
+      applySettings({ rotateReminders: false });
+      const offPicks = new Set(Array.from({ length: 50 }, () => pickReminderText()));
+      record('Stage 9: reminder lines rotate (her original about half the time); off = only hers', orig > 0.35 && orig < 0.65 && kinds >= 6 && offPicks.size === 1 && offPicks.has(BUBBLE_TEXT), `orig=${orig.toFixed(2)} kinds=${kinds}`);
+      applySettings({ rotateReminders: true, reminderMessages: ['Mine first', 'Second line'] });
+      const own = new Set(Array.from({ length: 60 }, () => pickReminderText()));
+      record('Stage 9: her own reminderMessages list is used', own.size === 2 && own.has('Mine first') && own.has('Second line'), [...own].join(' | '));
+      settings.reminderMessages = null;
+      applySettings({ rotateReminders: false });
+      const keepAl = settings.alarms;
+      settings.alarms = []; // no evening pill alarm in these checks
+      endReminder('selftest');
+      applySettings({ meowCapMinutes: 60 });
+      lastFullMeowAt = 0;
+      clearReports();
+      fireReminder('test');
+      const m1 = await waitFor((r) => r.type === 'audio', 2000);
+      clearReports();
+      fireReminder('test'); // a repeat inside the hour
+      const c2 = await waitFor((r) => r.type === 'chirp', 2000);
+      record('Stage 9: meow cap: one full meow, a repeat within the hour only chirps softly', !!m1 && !!c2 && !reports.some((r) => r.type === 'audio'), `meow=${!!m1} chirp=${!!c2}`);
+      endReminder('selftest');
+      lastFullMeowAt = 0;
+      gaming = true;
+      clearReports();
+      fireReminder('test');
+      const gb = await waitFor((r) => r.type === 'bubble' && r.data.shown, 2000);
+      const ga = await waitFor((r) => r.type === 'audio', 2000);
+      record('Stage 9: over a fullscreen game: small bubble + meow at 40 %', !!gb && gb.data.small === true && !!ga && Math.abs(ga.data.volume - settings.volume * 0.4) < 0.01, `${JSON.stringify(gb && gb.data)} vol=${ga && ga.data.volume}`);
+      endReminder('selftest');
+      // a failed fullscreen check -> normal reminders
+      const fsm = require('./fullscreen.js');
+      const realQuery = fsm.query;
+      fsm.query = async () => ({ busy: true, state: 0, name: 'unknown (selftest)' });
+      await gamePoll();
+      fsm.query = realQuery;
+      record('Stage 9: a failed fullscreen check falls back to normal reminders', gaming === false);
+      applySettings({ meowCapMinutes: 0 });
+      // pause reminders
+      fireReminder('test');
+      await sleep(400); // its bubble report arrives first
+      pauseReminders('hour', 'selftest');
+      const pausedMenu = buildContextMenu().items.find((i) => /^Resume reminders \(paused until \d\d:\d\d\)$/.test(i.label));
+      nextReminderAt = 0;
+      clearReports();
+      tick();
+      await sleep(300);
+      record('Stage 9: "Pause reminders" for 1 hour: ends the reminder, none come, menu + tray say so', remindersPaused() && !nagging && !!pausedMenu && !reports.some((r) => r.type === 'bubble' && r.data.shown)
+        && trayTooltip().includes('⏸ Reminders paused until') && readJsonSafe(settingsFile(), {}).remindersPausedUntil > Date.now(),
+        `paused=${remindersPaused()} nag=${!!nagging} menu=${pausedMenu ? pausedMenu.label : 'none'} bubbles=${reports.filter((r) => r.type === 'bubble').map((r) => JSON.stringify(r.data)).join(',')} tip=${trayTooltip().includes('⏸')} disk=${readJsonSafe(settingsFile(), {}).remindersPausedUntil}`);
+      pauseReminders('tomorrow', 'selftest');
+      const tomorrowItem = buildContextMenu().items.some((i) => i.label === 'Resume reminders (paused until tomorrow)');
+      resumeReminders('selftest');
+      const pauseItem = buildContextMenu().items.find((i) => i.label === 'Pause reminders');
+      record('Stage 9: pause until tomorrow, then resume', tomorrowItem && !remindersPaused() && !!pauseItem && pauseItem.submenu.items.length === 2);
+      settings.alarms = keepAl;
       history = keepHist;
       day.partyShownDate = '';
       resetCups('selftest');

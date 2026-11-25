@@ -53,6 +53,11 @@
         <label for="repeatMinutes">Repeat every <i class="tip-host">?<span class="tip">Until a cup is logged, the reminder bubble stays up and the cat meows again this often.</span></i></label>
         <div class="inline"><input id="repeatMinutes" type="number" min="1" max="120" step="1" required> <span>minutes</span></div>
       </div>
+      <div class="field">
+        <label for="meowCapMinutes">Full meow at most every <i class="tip-host">?<span class="tip">So reminders don't get annoying: within this time a reminder only chirps softly. 0 = always the full meow. A fullscreen game always gets a quieter meow and a small bubble.</span></i></label>
+        <div class="inline"><input id="meowCapMinutes" type="number" min="0" max="600" step="5" required> <span>minutes</span></div>
+      </div>
+      <label class="check"><input id="rotateReminders" type="checkbox"> Mix in other cute reminder lines <i class="tip-host">?<span class="tip">Your own line ("Its time to get wet girl 💦") still comes about half the time. Pause reminders from the right-click menu or the tray.</span></i></label>
       <div class="field stack">
         <label for="quietStart">Quiet hours <i class="tip-host">?<span class="tip">No reminders in this window. Set both times the same to turn quiet hours off.</span></i></label>
         <div class="inline"><input id="quietStart" type="time" required> <span>to</span> <input id="quietEnd" type="time" required></div>

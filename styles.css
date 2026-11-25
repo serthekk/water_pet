@@ -222,3 +222,6 @@ body.resizing #resize-grip { opacity: 1; pointer-events: auto; }
   cursor: pointer;
 }
 #buttons button:hover { background: #f4a6b8; }
+
+/* Stage 9: a smaller reminder bubble while a fullscreen game is in front */
+#bubble.small { font-size: 11px; line-height: 13px; padding: 3px 7px; max-width: 160px; }

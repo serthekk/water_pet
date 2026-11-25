@@ -411,7 +411,7 @@
     return ids.length ? ids[Math.floor(Math.random() * ids.length)] : all[0];
   }
 
-  async function playMeow(style = meowStyle) {
+  async function playMeow(style = meowStyle, level = volume) { // level: read NOW, before any await
     if (!soundOn) return api.report('audio', { ok: true, muted: true, requested: style });
     try {
       await meowsReady;
@@ -430,7 +430,7 @@
         try { prev.src.stop(now + FADE_S + 0.01); } catch (_) { /* already stopped */ }
         interrupted = true;
       }
-      const vol = Math.min(1, Math.max(0, volume));
+      const vol = Math.min(1, Math.max(0, level));
       const gain = ctx.createGain();
       gain.gain.value = vol;
       const src = ctx.createBufferSource();
@@ -455,19 +455,20 @@
   // persistent: stays until main says a cup was logged / the reminder was dismissed.
   // kind: 'water' (cup reminder) or 'alarm'. A logged cup only clears the water bubble.
   let bubbleKind = null;
-  function showBubble(text, persistent, kind = 'water') {
+  function showBubble(text, persistent, kind = 'water', small = false) {
     bubbleText.textContent = kind === 'alarm' ? `⏰ ${text}` : text;
     bubble.classList.add('shown');
+    bubble.classList.toggle('small', !!small); // Stage 9: over a fullscreen game
     bubble.classList.toggle('alarm', kind === 'alarm');
     bubbleKind = kind;
     clearTimeout(bubbleTimer);
     if (!persistent) bubbleTimer = setTimeout(() => hideBubble('timeout'), BUBBLE_MS);
-    api.report('bubble', { shown: true, text, kind, persistent: !!persistent });
+    api.report('bubble', { shown: true, text, kind, persistent: !!persistent, small: !!small });
   }
   function hideBubble(reason) {
     if (!bubble.classList.contains('shown')) return;
     clearTimeout(bubbleTimer);
-    bubble.classList.remove('shown', 'alarm');
+    bubble.classList.remove('shown', 'alarm', 'small');
     bubbleKind = null;
     api.report('bubble', { shown: false, reason });
   }
@@ -931,9 +932,11 @@
   api.onReminder((r) => {
     if (typeof r.volume === 'number') volume = r.volume;
     if (typeof r.meowStyle === 'string') meowStyle = r.meowStyle;
-    showBubble(r.text, r.persistent, r.kind);
+    showBubble(r.text, r.persistent, r.kind, r.small);
     hop(); // a little jump each time, so a repeat gets noticed
-    playMeow();
+    // Stage 9: the meow cap turns repeats into a soft chirp
+    if (r.sound === 'chirp') chirp(true);
+    else if (r.sound !== 'none') playMeow(meowStyle, volume * (typeof r.factor === 'number' && r.factor < 1 ? r.factor : 1)); // over a game: 40 %, just this meow
   });
   api.onHideBubble((reason) => hideBubble(reason || 'main'));
   // Quiet, short bubbles (not persistent; a reminder/alarm replaces them, they never cover one):

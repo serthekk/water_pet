@@ -22,7 +22,7 @@
     const snap = (v) => Math.round(v / P) * P;
     const left = 22;
     const bottom = cv.height - 18;
-    const top = 8;
+    const top = 18; // room for the number over the tallest bar
     const maxV = Math.max(data.goal, ...days.map((d) => d.cups), 1);
     const scaleY = (v) => snap(bottom - ((bottom - top) * v) / maxV);
     const slot = (cv.width - left - 4) / days.length;
@@ -32,7 +32,7 @@
     // y labels: 0 and the max
     g.fillStyle = css('--muted');
     g.textAlign = 'right';
-    g.fillText(String(maxV), left - 4, top + 8);
+    g.fillText(String(maxV), left - 4, top + 4);
     g.fillText('0', left - 4, bottom);
     g.textAlign = 'center';
     days.forEach((d, i) => {

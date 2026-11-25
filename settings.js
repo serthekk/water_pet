@@ -352,6 +352,8 @@
     $('idleAnimations').checked = s.idleAnimations;
     $('chaseMouse').checked = s.chaseMouse;
     $('eyesFollow').checked = s.eyesFollow;
+    $('rotateReminders').checked = s.rotateReminders;
+    if (document.activeElement !== $('meowCapMinutes')) $('meowCapMinutes').value = s.meowCapMinutes;
     $('taskbarWalk').checked = s.taskbarWalk;
     drawPreview();
     fillStyles(s.meowStyles, s.meowStyle);
@@ -407,14 +409,14 @@
     api.testMeow(styleSel.value); // preview the style she picked
   });
 
-  for (const id of ['idleSleepEnabled', 'idleAnimations', 'chaseMouse', 'eyesFollow', 'taskbarWalk']) {
+  for (const id of ['idleSleepEnabled', 'idleAnimations', 'chaseMouse', 'eyesFollow', 'taskbarWalk', 'rotateReminders']) {
     $(id).addEventListener('change', (e) => {
       if (id === 'idleSleepEnabled') $('idleSleepMinutes').disabled = !e.target.checked;
       save({ [id]: e.target.checked });
     });
   }
 
-  for (const id of ['goalCups', 'reminderMinutes', 'repeatMinutes', 'idleSleepMinutes']) {
+  for (const id of ['goalCups', 'reminderMinutes', 'repeatMinutes', 'idleSleepMinutes', 'meowCapMinutes']) {
     $(id).addEventListener('change', (e) => {
       if (!e.target.checkValidity()) return showStatus('Not saved: invalid value', true);
       save({ [id]: Number(e.target.value) });
