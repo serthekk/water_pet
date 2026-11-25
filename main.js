@@ -133,6 +133,8 @@ const DEFAULT_SETTINGS = {
   skippedVersion: '', // 'Skip this version'
   lastRunVersion: '', // the app version that ran last (an update shows one 'I got an update!' bubble)
   idleAnimations: true,
+  eyesFollow: true, // Stage 7: her pupils follow the mouse
+  taskbarWalk: false, // Stage 7: now and then she strolls along the bottom of the screen
   chaseMouse: false,
   theme: 'cream', // colours of the right-click menu + every window (themes.js); 'custom' = customTheme
   drink: 'bowl', // the icon next to the counter (drinks.js): bowl | water | kombucha | tea | coffee | boba
@@ -486,7 +488,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
     const list = raw.customPresets.map((p) => p && sanitizeCustomPreset(p)).filter(Boolean);
     if (list.length === raw.customPresets.length) s.customPresets = list;
   }
-  for (const k of ['cupChirp', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
+  for (const k of ['cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
   // older files: sleepWhenIdle / sleepAfterMinutes (old default 10 -> new default 15)
   if (typeof raw.idleSleepEnabled !== 'boolean' && typeof raw.sleepWhenIdle === 'boolean') s.idleSleepEnabled = raw.sleepWhenIdle;
   if (raw.idleSleepMinutes === undefined && Number.isInteger(raw.sleepAfterMinutes) && raw.sleepAfterMinutes !== 10) raw = { ...raw, idleSleepMinutes: Math.min(120, raw.sleepAfterMinutes) };
@@ -1032,7 +1034,7 @@ function saveSettings() {
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
   'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
-  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp'];
+  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk'];
 
 // For the Settings toolbar (Sleep / Wake, Hide / Show).
 function catState() {
@@ -1131,11 +1133,18 @@ function applySettings(partial) {
   }
   if (changed.includes('alarms')) alarmsEdited(prev.alarms);
   if (changed.includes('theme') || (changed.includes('customTheme') && settings.theme === 'custom')) broadcastTheme();
+  if (changed.includes('taskbarWalk')) {
+    if (!settings.taskbarWalk) endStroll('turned off');
+    else behavior.nextStrollAt = Date.now() + 8000; // a first little walk soon
+    updateTrayMenu();
+  }
+  if (changed.includes('eyesFollow')) eyesTick();
   if (changed.includes('chaseMouse')) {
+    if (settings.chaseMouse) endStroll('chasing');
     setChase(settings.chaseMouse);
     updateTrayMenu();
   }
-  if (settingsWin && !settingsWin.isDestroyed() && (changed.includes('chaseMouse') || changed.includes('meowStyle') || changed.includes('catSize') || changed.includes('theme') || changed.includes('customTheme') || changed.includes('drink') || changed.includes('drinkWord')
+  if (settingsWin && !settingsWin.isDestroyed() && (changed.includes('chaseMouse') || changed.includes('meowStyle') || changed.includes('catSize') || changed.includes('theme') || changed.includes('customTheme') || changed.includes('drink') || changed.includes('drinkWord') || changed.includes('taskbarWalk')
     || ['breed', 'tail', 'whiskersEnabled', 'catName', 'catDescriptor', ...LOOK_KEYS].some((k) => changed.includes(k)))) {
     settingsWin.webContents.send('settings:changed', publicSettings()); // changes made elsewhere show up in Settings
   }
@@ -1859,13 +1868,100 @@ function behaviorTick() {
       try { idleS = powerMonitor.getSystemIdleTime(); } catch (_) { /* unavailable */ }
       if (idleS >= settings.idleSleepMinutes * 60) return goToSleep('computer idle');
     }
-    if (settings.idleAnimations && behavior.pose === 'sit' && now >= behavior.nextIdleAnimAt) {
-      behavior.nextIdleAnimAt = now + 60000 + Math.random() * 90000;
-      sendAnim(Math.random() < 0.5 ? 'stretch' : 'scratch');
+    // Stage 7: never during a reminder, an alarm or a party
+    const busy = !!(nagging || activeAlarm || partyActive);
+    if (settings.idleAnimations && behavior.pose === 'sit' && !busy && !stroll && now >= behavior.nextIdleAnimAt) {
+      behavior.nextIdleAnimAt = now + IDLE_MIN_MS + Math.random() * (IDLE_MAX_MS - IDLE_MIN_MS);
+      sendAnim(IDLE_ANIMS[Math.floor(Math.random() * IDLE_ANIMS.length)]);
+      return;
+    }
+    if (settings.taskbarWalk && !settings.chaseMouse && behavior.pose === 'sit' && !busy && !stroll && now >= (behavior.nextStrollAt || 0)) {
+      behavior.nextStrollAt = now + STROLL_MIN_MS + Math.random() * (STROLL_MAX_MS - STROLL_MIN_MS);
+      startStroll();
     }
   } catch (err) {
     log('behaviorTick error', err);
   }
+}
+
+// --- Cat life (Stage 7) --------------------------------------------------------------
+// Idle moves every 30-120 s while she is awake and sitting.
+const IDLE_ANIMS = ['stretch', 'scratch', 'yawn', 'groom', 'look', 'tailcurl'];
+const IDLE_MIN_MS = 30000;
+const IDLE_MAX_MS = 120000;
+
+// Eyes follow the cursor: her pupils shift one pixel toward the mouse (left / middle /
+// right), checked ~10 times a second; the page repaints only when the side changes.
+let eyesTimer = null;
+let eyesDx = 0;
+function eyesTick() {
+  try {
+    if (!win || win.isDestroyed() || !win.isVisible()) return;
+    let dx = 0;
+    if (settings.eyesFollow && behavior.state !== 'sleeping') {
+      const c = cursorPoint();
+      const b = win.getBounds();
+      const faceX = b.x + catAnchor().x;
+      if (c.x < faceX - 40) dx = -1;
+      else if (c.x > faceX + 40) dx = 1;
+    }
+    if (dx !== eyesDx) {
+      eyesDx = dx;
+      win.webContents.send('eyes', { dx });
+    }
+  } catch (err) {
+    log('eyesTick error', err);
+  }
+}
+
+// Taskbar walk (optional, off by default): now and then she strolls a little way along
+// the bottom of the screen on the walk cycle, then sits. Only when she already sits at the
+// bottom (a cat placed anywhere else stays put). Moves with setBounds (same size), clamped;
+// stops when she is dragged, chases, sleeps, a reminder / alarm / party starts.
+const STROLL_MIN_MS = 45000;
+const STROLL_MAX_MS = 150000;
+let STROLL_STEP = 3; // px per 40 ms (~75 px/s, an easy stroll); the selftest speeds it up
+let stroll = null; // { timer, toX, dir }
+function atScreenBottom(b) {
+  const area = screen.getDisplayNearestPoint({ x: b.x + b.width / 2, y: b.y + b.height / 2 }).workArea;
+  return { area, ok: Math.abs(b.y - (area.y + area.height - b.height)) <= 60 };
+}
+function startStroll(force) {
+  if (!win || win.isDestroyed() || stroll || drag || slide) return false;
+  const b = win.getBounds();
+  const { area, ok } = atScreenBottom(b);
+  if (!ok && !force) return false;
+  const dist = 150 + Math.random() * 350;
+  let dir = Math.random() < 0.5 ? -1 : 1;
+  // turn around at the edges
+  if (b.x + dir * dist < area.x || b.x + b.width + dir * dist > area.x + area.width) dir = -dir;
+  const toX = Math.round(Math.max(area.x, Math.min(b.x + dir * dist, area.x + area.width - b.width)));
+  if (Math.abs(toX - b.x) < 20) return false;
+  stroll = { dir, toX, timer: setInterval(strollTick, 40) };
+  sendPose('walk', dir);
+  log(`taskbar walk: ${dir > 0 ? 'right' : 'left'} to x=${toX}`);
+  return true;
+}
+function strollTick() {
+  if (!stroll) return;
+  const stop = !win || win.isDestroyed() || !win.isVisible() || drag || slide || settings.chaseMouse || behavior.state === 'sleeping' || nagging || activeAlarm || partyActive;
+  if (stop) return endStroll('interrupted');
+  const b = win.getBounds();
+  const left = stroll.toX - b.x;
+  if (Math.abs(left) <= STROLL_STEP) {
+    setWinPos(stroll.toX, b.y);
+    return endStroll('arrived');
+  }
+  setWinPos(b.x + Math.sign(left) * STROLL_STEP, b.y);
+}
+function endStroll(reason) {
+  if (!stroll) return false;
+  clearInterval(stroll.timer);
+  stroll = null;
+  if (behavior.state !== 'sleeping' && !settings.chaseMouse && !drag) sendPose('sit', 1);
+  if (reason === 'arrived') savePosition();
+  log(`taskbar walk ended (${reason})`);
+  return true;
 }
 
 // Chase: walk toward the cursor and sit beside it. Stops while the cursor is over the
@@ -1915,6 +2011,9 @@ function setChase(on) {
 
 function startBehavior() {
   behavior.tickTimer = setInterval(behaviorTick, 1000);
+  eyesTimer = setInterval(eyesTick, 100); // Stage 7: eyes follow the cursor
+  behavior.nextIdleAnimAt = Date.now() + IDLE_MIN_MS + Math.random() * (IDLE_MAX_MS - IDLE_MIN_MS);
+  behavior.nextStrollAt = Date.now() + STROLL_MIN_MS;
   if (settings.chaseMouse) setChase(true);
 }
 
@@ -2727,6 +2826,7 @@ function buildContextMenu() {
       : { label: 'Sleep now', click: () => goToSleep('manual') },
     sleepSpotMenu(),
     { label: 'Chase the mouse', type: 'checkbox', checked: settings.chaseMouse, click: (item) => applySettings({ chaseMouse: item.checked }) },
+    { label: 'Walk along the taskbar', type: 'checkbox', checked: settings.taskbarWalk, click: (item) => applySettings({ taskbarWalk: item.checked }) },
     { label: 'Customize cat…', click: () => openCustomize() },
     { label: 'Settings…', click: () => openSettings() },
     { type: 'separator' },
@@ -3295,6 +3395,68 @@ async function runSelftest() {
     record('Stage 5: no hat on a day without a party', !hatOn());
     day.partyShownDate = '';
     PARTY_MS = 20000;
+
+    // 0c. Stage 7: cat life
+    {
+      const b0 = win.getBounds();
+      const face = b0.x + catAnchor().x;
+      const eyesAt = async (x) => {
+        fakeCursor = { x, y: b0.y + 50 };
+        await sleep(350);
+        return win.webContents.executeJavaScript('window.__eyeDx || 0');
+      };
+      const left = await eyesAt(face - 300);
+      const right = await eyesAt(face + 300);
+      const mid = await eyesAt(face);
+      applySettings({ eyesFollow: false });
+      const off = await eyesAt(face - 300);
+      applySettings({ eyesFollow: true });
+      fakeCursor = null;
+      record('Stage 7: eyes follow the mouse (left / right / straight on), off in Settings', left === -1 && right === 1 && mid === 0 && off === 0, `${left} ${right} ${mid} off=${off}`);
+      // the new idle moves play without errors
+      const played = [];
+      for (const name of ['yawn', 'groom', 'look', 'tailcurl']) {
+        clearReports();
+        sendAnim(name);
+        const a = await waitFor((r) => r.type === 'anim' && r.data.name === name, 2000);
+        if (a) played.push(name);
+        await sleep(name === 'groom' ? 2900 : name === 'tailcurl' ? 2900 : 2000);
+      }
+      record('Stage 7: idle moves yawn / groom / look around / tail curl play', played.length === 4, played.join(','));
+      // never during a party (or a reminder / alarm)
+      partyActive = { source: 'selftest', until: Date.now() + 5000 };
+      behavior.nextIdleAnimAt = 0;
+      clearReports();
+      behaviorTick();
+      await sleep(300);
+      record('Stage 7: no idle move during a party / reminder', !reports.some((r) => r.type === 'anim'));
+      partyActive = null;
+      // taskbar walk: only when she sits at the bottom; walks with the walk cycle, then sits + saves
+      const area = screen.getDisplayNearestPoint({ x: b0.x, y: b0.y }).workArea;
+      setWinPos(area.x + 600, area.y + 200);
+      await sleep(150);
+      const notBottom = startStroll();
+      setWinPos(area.x + 600, area.y + area.height - b0.height);
+      await sleep(150);
+      STROLL_STEP = 40;
+      clearReports();
+      const went = startStroll();
+      const walking = await waitFor((r) => r.type === 'pose' && r.data.pose === 'walk', 2000);
+      for (let i = 0; i < 60 && stroll; i++) await sleep(50);
+      const bAfter = win.getBounds();
+      record('Stage 7: taskbar walk only from the bottom of the screen, walks, then sits + saves the spot', !notBottom && went && !!walking && !stroll && behavior.pose === 'sit'
+        && bAfter.x !== area.x + 600 && settings.position && settings.position.x === bAfter.x && bAfter.width === b0.width && bAfter.height === b0.height, `notBottom=${notBottom} went=${went} x=${bAfter.x}`);
+      // a drag (or turning it off) stops a walk
+      STROLL_STEP = 1;
+      startStroll();
+      await sleep(150);
+      applySettings({ taskbarWalk: true });
+      applySettings({ taskbarWalk: false });
+      record('Stage 7: turning the taskbar walk off stops her walking', !stroll && behavior.pose === 'sit');
+      STROLL_STEP = 3;
+      setWinPos(b0.x, b0.y);
+      await sleep(200);
+    }
 
     // 1. Real (synthetic OS-level) click on the cat -> +1 cup, meow
     resetCups('selftest');
@@ -3878,7 +4040,7 @@ async function runSelftest() {
       behavior.nextIdleAnimAt = 0;
       behaviorTick();
       const idleAnim = await waitFor((r) => r.type === 'anim', 1500);
-      record('idle animation fires (stretch or scratch)', !!idleAnim && ['stretch', 'scratch'].includes(idleAnim.data.name), idleAnim ? idleAnim.data.name : 'none');
+      record('idle animation fires (one of the idle moves)', !!idleAnim && IDLE_ANIMS.includes(idleAnim.data.name), idleAnim ? idleAnim.data.name : 'none');
       await sleep(3200); // let it finish (scratch is the longest, 2.6 s)
       clearReports();
       sendAnim('scratch');

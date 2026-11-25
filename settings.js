@@ -351,6 +351,8 @@
     $('idleSleepMinutes').disabled = !s.idleSleepEnabled;
     $('idleAnimations').checked = s.idleAnimations;
     $('chaseMouse').checked = s.chaseMouse;
+    $('eyesFollow').checked = s.eyesFollow;
+    $('taskbarWalk').checked = s.taskbarWalk;
     drawPreview();
     fillStyles(s.meowStyles, s.meowStyle);
     volume.value = Math.round(s.volume * 100);
@@ -405,7 +407,7 @@
     api.testMeow(styleSel.value); // preview the style she picked
   });
 
-  for (const id of ['idleSleepEnabled', 'idleAnimations', 'chaseMouse']) {
+  for (const id of ['idleSleepEnabled', 'idleAnimations', 'chaseMouse', 'eyesFollow', 'taskbarWalk']) {
     $(id).addEventListener('change', (e) => {
       if (id === 'idleSleepEnabled') $('idleSleepMinutes').disabled = !e.target.checked;
       save({ [id]: e.target.checked });

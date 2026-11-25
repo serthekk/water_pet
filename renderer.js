@@ -21,6 +21,7 @@
   let soundOn = true; // settings "soundEnabled": every sound checks it
   let cupChirp = true; // Stage 4: a logged drink chirps (then a click doesn't meow)
   let hatOn = false; // Stage 5: party hat (from the goal party until midnight)
+  let eyeDx = 0; // Stage 7: -1 / 0 / 1, where the mouse is (from main)
   let bubbleTimer = null;
   let pressing = false; // left button is down on the cat
 
@@ -109,6 +110,8 @@
   function redrawNow() { if (lastArgs) drawFrame(...lastArgs); }
   function drawFrame(pose, frame, facing, opts = {}) {
     lastArgs = [pose, frame, facing, opts];
+    // Stage 7: sitting with open eyes and no look of her own -> pupils toward the cursor
+    if (pose === 'sit' && opts.lookDx === undefined && eyeDx && (frame === 'sit' || frame === 'wag') && !opts.spot) opts = { ...opts, lookDx: eyeDx };
     const key = `${lookKey}|${pose}|${frame}|${facing}|${JSON.stringify(opts)}|${hatOn}`;
     if (key === drawn) return;
     drawn = key;
@@ -259,6 +262,11 @@
     belly: [['belly', 'a', 3000]], // petted: belly up ~3 s
     boop: [['sit', 'blink', 110], ['sit', 'sit', 120], ['sit', 'blink', 110], ['sit', 'squint', 500]], // surprised blink
     happy: [['sit', 'squint', 900], ['sit', 'blink', 120], ['sit', 'squint', 600]], // a drink was logged (Stage 4)
+    // Stage 7 idle moves
+    yawn: [['yawn', 'yawn', 1100], ['sit', 'blink', 180], ['sit', 'sit', 200]],
+    groom: [...Array.from({ length: 10 }, (_, i) => ['groom', i % 2 ? 'b' : 'a', 260]), ['sit', 'blink', 180]],
+    look: [['sit', 'sit', 800, { lookDx: -1 }], ['sit', 'blink', 140, { lookDx: -1 }], ['sit', 'sit', 900, { lookDx: 1 }], ['sit', 'sit', 500, { lookDx: 0 }]],
+    tailcurl: [['sit', 'wag', 600], ['sit', 'sit', 450], ['sit', 'wag', 900], ['sit', 'sit', 300], ['sit', 'wag', 400], ['sit', 'sit', 200]],
   };
   function playAnim(name, a = {}) {
     let steps = ANIMS[name];
@@ -791,6 +799,13 @@
     api.report('party-end', { reason, frames: p.frames, peak: +p.peak.toFixed(2), music: !!p.audio });
   }
   api.onParty((o) => (o && o.on ? startParty(o) : stopParty('main')));
+  api.onEyes((e) => {
+    const dx = e && [-1, 0, 1].includes(e.dx) ? e.dx : 0;
+    if (dx === eyeDx) return;
+    eyeDx = dx;
+    if (lastArgs && lastArgs[0] === 'sit') redrawNow();
+    window.__eyeDx = dx; // selftest
+  });
   window.__partyOn = () => !!party; // selftest
 
   // Happy drink chirp (Stage 4): two quick rising notes, a little brighter than the squeak.

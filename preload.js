@@ -34,5 +34,6 @@ contextBridge.exposeInMainWorld('api', {
   onColorsChanged: (cb) => ipcRenderer.on('colors-changed', (_e, look) => cb(look)),
   onPetted: (cb) => ipcRenderer.on('petted', (_e, p) => cb(p)),
   onParty: (cb) => ipcRenderer.on('party', (_e, o) => cb(o)),
+  onEyes: (cb) => ipcRenderer.on('eyes', (_e, e) => cb(e)),
   pet: () => ipcRenderer.invoke('pet'),
 });
