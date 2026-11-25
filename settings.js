@@ -152,6 +152,7 @@
 
   $('mouseResize').addEventListener('change', (e) => save({ mouseResize: e.target.checked }));
   $('soundEnabled').addEventListener('change', (e) => save({ soundEnabled: e.target.checked }));
+  $('cupChirp').addEventListener('change', (e) => save({ cupChirp: e.target.checked }));
 
   // Name, colours, presets, tail + whiskers live in the Customize window.
   $('open-customize').addEventListener('click', () => api.openCustomize());
@@ -338,6 +339,7 @@
     $('look-name').textContent = s.catName;
     fillPronouns(s.catGender);
     $('soundEnabled').checked = s.soundEnabled;
+    $('cupChirp').checked = s.cupChirp;
     $('mouseResize').checked = s.mouseResize;
     fillAlarms(s.alarms);
     if (s.themes) fillThemes(s.themes, s.theme, s.customThemeLabels);

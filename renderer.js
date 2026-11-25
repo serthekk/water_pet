@@ -19,6 +19,7 @@
 
   let volume = 0.5;
   let soundOn = true; // settings "soundEnabled": every sound checks it
+  let cupChirp = true; // Stage 4: a logged drink chirps (then a click doesn't meow)
   let bubbleTimer = null;
   let pressing = false; // left button is down on the cat
 
@@ -40,6 +41,7 @@
     if (typeof s.volume === 'number') volume = s.volume;
     if (typeof s.meowStyle === 'string') meowStyle = s.meowStyle;
     if (typeof s.sound === 'boolean') soundOn = s.sound;
+    if (typeof s.cupChirp === 'boolean') cupChirp = s.cupChirp;
     countEl.textContent = `${s.cups} / ${s.goal} ${s.word || 'cups'}`;
     if (s.drink && s.drink !== shownDrink) showDrink(s.drink);
     if (typeof s.mouseResize === 'boolean') document.body.classList.toggle('can-resize', s.mouseResize);
@@ -247,6 +249,7 @@
     scratch: Array.from({ length: 12 }, (_, i) => ['scratch', i % 2 ? 'b' : 'a', 220]),
     belly: [['belly', 'a', 3000]], // petted: belly up ~3 s
     boop: [['sit', 'blink', 110], ['sit', 'sit', 120], ['sit', 'blink', 110], ['sit', 'squint', 500]], // surprised blink
+    happy: [['sit', 'squint', 900], ['sit', 'blink', 120], ['sit', 'squint', 600]], // a drink was logged (Stage 4)
   };
   function playAnim(name, a = {}) {
     let steps = ANIMS[name];
@@ -605,9 +608,38 @@
     api.report('squeak', { ok: true });
   }
 
+  // Happy drink chirp (Stage 4): two quick rising notes, a little brighter than the squeak.
+  function chirp(quiet) {
+    if (!soundOn) return api.report('chirp', { muted: true });
+    if (ctx.state !== 'running') ctx.resume();
+    const lvl = Math.min(1, Math.max(0, volume)) * (quiet ? 0.12 : 0.32);
+    const note = (t0, f0, f1) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(f0, t0);
+      o.frequency.exponentialRampToValueAtTime(f1, t0 + 0.07);
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(lvl, t0 + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.13);
+      o.connect(g).connect(ctx.destination);
+      o.onended = () => { o.disconnect(); g.disconnect(); };
+      o.start(t0);
+      o.stop(t0 + 0.15);
+    };
+    const now = ctx.currentTime;
+    note(now, 880, 1100);
+    note(now + 0.12, 1175, 1560);
+    api.report('chirp', { ok: true, level: +lvl.toFixed(3), quiet: !!quiet });
+  }
+
   api.onPetted((p) => {
     const waking = anim === 'wake'; // petted awake: let her stretch out of her spot first
-    if (p.kind === 'boop') {
+    if (p.kind === 'cup') {
+      if (!waking) playAnim('happy');
+      hearts(3);
+      if (p.chirp) chirp(p.quiet);
+    } else if (p.kind === 'boop') {
       if (!waking) playAnim('boop');
       squeak(p.quiet);
       hearts(2);
@@ -668,7 +700,7 @@
     if (btn && BUTTON_ACTIONS[btn.id]) BUTTON_ACTIONS[btn.id]();
     else if (r && r.click) {
       hop();
-      playMeow();
+      if (!cupChirp) playMeow(); // with the chirp on, main's 'petted' (cup) plays the sound
       hideBubble('click');
     }
   });

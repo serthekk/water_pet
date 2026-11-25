@@ -136,6 +136,7 @@ const DEFAULT_SETTINGS = {
   chaseMouse: false,
   theme: 'cream', // colours of the right-click menu + every window (themes.js); 'custom' = customTheme
   drink: 'bowl', // the icon next to the counter (drinks.js): bowl | water | kombucha | tea | coffee | boba
+  cupChirp: true, // Stage 4: a logged drink plays a short happy chirp (off: the click meows, other cups are silent)
   drinkWord: '', // her own counter word ('' = the drink's own: cups, BOOCHES, bobas)
   customTheme: { bg: '#fff6ea', card: '#ffffff', ink: '#3b2f2f', accent: '#b4621c', hover: '#f4a6b8', check: '#e8913a' }, // her own 6 colours
   position: null,
@@ -485,7 +486,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
     const list = raw.customPresets.map((p) => p && sanitizeCustomPreset(p)).filter(Boolean);
     if (list.length === raw.customPresets.length) s.customPresets = list;
   }
-  for (const k of ['autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
+  for (const k of ['cupChirp', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
   // older files: sleepWhenIdle / sleepAfterMinutes (old default 10 -> new default 15)
   if (typeof raw.idleSleepEnabled !== 'boolean' && typeof raw.sleepWhenIdle === 'boolean') s.idleSleepEnabled = raw.sleepWhenIdle;
   if (raw.idleSleepMinutes === undefined && Number.isInteger(raw.sleepAfterMinutes) && raw.sleepAfterMinutes !== 10) raw = { ...raw, idleSleepMinutes: Math.min(120, raw.sleepAfterMinutes) };
@@ -1031,7 +1032,7 @@ function saveSettings() {
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
   'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
-  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord'];
+  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp'];
 
 // For the Settings toolbar (Sleep / Wake, Hide / Show).
 function catState() {
@@ -1218,7 +1219,7 @@ function pushState(extra = {}) {
   if (!win || win.isDestroyed()) return;
   win.webContents.send('state', {
     cups: day.cups, goal: settings.goalCups, volume: settings.volume, meowStyle: settings.meowStyle, sound: settings.soundEnabled,
-    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), ...extra,
+    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, ...extra,
   });
 }
 
@@ -1237,6 +1238,8 @@ function addCup(source) {
   // (state first: the page hides the bubble with the right reason, click vs cup)
   pushState({ added: true, source, hop: source !== 'click' });
   endReminder('cup logged');
+  // Stage 4: every drink also counts as a pet (happy squint, hearts, +1 pet, chirp)
+  pet('cup', source);
 }
 
 function undoCup(source) {
@@ -1293,7 +1296,7 @@ function pet(kind, source) {
   const wasAsleep = behavior.state === 'sleeping';
   if (wasAsleep) wakeUp(`pet (${kind})`);
   behavior.lastActive = now;
-  if (win && !win.isDestroyed()) win.webContents.send('petted', { kind, quiet: isQuietNow() || wasAsleep, petsToday: pc.today });
+  if (win && !win.isDestroyed()) win.webContents.send('petted', { kind, quiet: isQuietNow() || wasAsleep, petsToday: pc.today, chirp: settings.cupChirp });
   pushState();
   return { ok: true, petsToday: pc.today };
 }
@@ -2858,7 +2861,7 @@ function applyLoginItem() {
 function registerIpc() {
   ipcMain.handle('get-state', () => ({
     cups: day.cups, goal: settings.goalCups, volume: settings.volume, meowStyle: settings.meowStyle, sound: settings.soundEnabled,
-    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), pose: behavior.pose,
+    look: currentLook(), size: settings.catSize, mouseResize: settings.mouseResize, drink: settings.drink, word: drinkWord(), cupChirp: settings.cupChirp, pose: behavior.pose,
   }));
   // File bytes for Web Audio (works the same inside the packaged asar).
   // `clean: true` = her own file, the renderer cleans it before use.
@@ -3158,6 +3161,34 @@ async function runSelftest() {
     record('Gargorl + Fainu start with their looks locked', settings.catLookLocked === true && settings.cats.find((c) => c.id === 'fainu').lookLocked === true);
     editCat('gargorl', { catLookLocked: false });
     editCat('fainu', { catLookLocked: false });
+
+    // 0. Stage 4: a drink counts as a pet (default: happy squint + hearts + chirp, no click meow)
+    record('Stage 4: "happy chirp on a drink" is on by default', DEFAULT_SETTINGS.cupChirp === true && settings.cupChirp === true);
+    resetCups('selftest');
+    await sleep(300);
+    const petsC = petsOf().today;
+    clearReports();
+    await click(cx, cy);
+    await sleep(500);
+    const chirpR = reports.find((r) => r.type === 'chirp');
+    const happyR = reports.find((r) => r.type === 'anim' && r.data.name === 'happy');
+    record('Stage 4: a click logs a drink AND a pet: happy squint + chirp, no meow', day.cups === 1 && petsOf().today === petsC + 1 && !!chirpR && chirpR.data.ok
+      && !!happyR && !reports.some((r) => r.type === 'audio'), `cups=${day.cups} pets ${petsC}->${petsOf().today} chirp=${JSON.stringify(chirpR && chirpR.data)} happy=${!!happyR}`);
+    clearReports();
+    addCup('hotkey');
+    await sleep(400);
+    record('Stage 4: hotkey / tray drinks count as a pet too (+ chirp)', day.cups === 2 && petsOf().today === petsC + 2 && reports.some((r) => r.type === 'chirp' && r.data.ok));
+    applySettings({ soundEnabled: false });
+    clearReports();
+    addCup('tray');
+    await sleep(400);
+    const muted = reports.find((r) => r.type === 'chirp');
+    record('Stage 4: the chirp honours "Sound on" (off = silent, still a pet)', petsOf().today === petsC + 3 && !!muted && muted.data.muted === true);
+    applySettings({ soundEnabled: true, cupChirp: false }); // the tests below check the click meow (chirp off = old behaviour)
+    clearReports();
+    addCup('tray');
+    await sleep(400);
+    record('Stage 4: chirp off -> no chirp (still a pet)', petsOf().today === petsC + 4 && !reports.some((r) => r.type === 'chirp'));
 
     // 1. Real (synthetic OS-level) click on the cat -> +1 cup, meow
     resetCups('selftest');
@@ -4286,11 +4317,14 @@ async function runSelftest() {
       // ignored while dragging + over the hover buttons
       lastStrokePetAt = 0;
       const pets1 = petsOf().today;
+      const cups1 = day.cups; // the press/release below is a click = a drink = a pet (Stage 4)
       send({ type: 'mouseDown', x: mx, y: my, button: 'left', clickCount: 1 });
       await stroke(14, { modifiers: ['leftButtonDown'] });
       send({ type: 'mouseUp', x: mx, y: my, button: 'left', clickCount: 1 });
       await sleep(300);
-      record('no pet while the button is held / dragging', petsOf().today === pets1, `today=${petsOf().today}`);
+      const drinkPets = day.cups - cups1;
+      record('no pet while the button is held / dragging', petsOf().today === pets1 + drinkPets, `today=${petsOf().today} (drinks ${drinkPets})`);
+      const pets1b = petsOf().today;
       if (!win.isVisible()) showCat();
       undoCup('selftest'); // that press/release was a click
       setWinPos(area.x + 400, area.y + 300);
@@ -4303,7 +4337,7 @@ async function runSelftest() {
         await sleep(30);
       }
       await sleep(300);
-      record('no pet over the hover buttons', petsOf().today === pets1, `today=${petsOf().today}`);
+      record('no pet over the hover buttons', petsOf().today === pets1b, `today=${petsOf().today}`);
 
       // nose boop: squeak + surprised blink + pet, no cup; body click still a cup
       await sleep(400);
