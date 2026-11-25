@@ -1340,7 +1340,8 @@ function pet(kind, source) {
   const wasAsleep = behavior.state === 'sleeping';
   if (wasAsleep) wakeUp(`pet (${kind})`);
   behavior.lastActive = now;
-  if (win && !win.isDestroyed()) win.webContents.send('petted', { kind, quiet: isQuietNow() || wasAsleep, petsToday: pc.today, chirp: settings.cupChirp });
+  // (while she plays, the play overlay shows the hearts itself; the desktop cat is hidden)
+  if (win && !win.isDestroyed() && !playWin) win.webContents.send('petted', { kind, quiet: isQuietNow() || wasAsleep, petsToday: pc.today, chirp: settings.cupChirp });
   pushState();
   return { ok: true, petsToday: pc.today };
 }
@@ -1509,6 +1510,126 @@ function moodTick() {
   pushState();
 }
 
+// --- Play mode (Stage 6) -----------------------------------------------------------
+// Manual only ("Play ▸" in the menu / tray): the desktop cat hides and ONE transparent
+// overlay covers the work area of the display the cursor is on. The cat and a toy live in
+// it; clicks go through to her game / apps except over the toy or the cat (the page asks
+// via 'play:hover'). Ends after 3 min, "Stop playing", Esc (once she clicked into it), or
+// when a reminder / alarm / party starts; the desktop cat comes back where she ended up.
+const PLAY_TOYS = [['ball', 'Ball'], ['fish', 'Fish on a stick'], ['yarn', 'Yarn ball'], ['mouse', 'Toy mouse']];
+let PLAY_MS = 3 * 60000;
+let playWin = null;
+let playTimer = null;
+let playInfo = null; // { toy, area, source, since }
+let playIgnoring = true; // clicks go through the overlay (false while over the toy / cat)
+const catCanvasLeft = () => Math.round((WIN_W - CatSprites.CANVAS.cols * settings.catSize) / 2);
+
+function startPlay(toy, source) {
+  if (!PLAY_TOYS.some(([id]) => id === toy)) toy = 'ball';
+  if (playWin) {
+    log(`play: switching toy to ${toy}`);
+    stopPlay('new toy', { keepTray: true });
+  }
+  if (!win || win.isDestroyed()) return false;
+  if (behavior.state === 'sleeping') wakeUp('play', { wakeReturn: false }); // the spot goes away
+  endStroll('play');
+  hideMenu('play');
+  endParty('play');
+  const b = win.getBounds();
+  const area = screen.getDisplayNearestPoint(cursorPoint()).workArea;
+  const onThis = b.x + b.width > area.x && b.x < area.x + area.width && b.y + b.height > area.y && b.y < area.y + area.height;
+  const catX = onThis ? b.x + catCanvasLeft() - area.x : Math.round(area.width / 2 - 15 * settings.catSize);
+  const catY = onThis ? b.y + SPRITE_TOP - area.y : null;
+  playWin = new BrowserWindow({
+    x: area.x,
+    y: area.y,
+    width: area.width,
+    height: area.height,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    title: 'WaterCat play',
+    webPreferences: {
+      preload: path.join(__dirname, 'play-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+      backgroundThrottling: false,
+    },
+  });
+  const w = playWin;
+  w.setAlwaysOnTop(true, 'floating');
+  w.setMenu(null);
+  w.setIgnoreMouseEvents(true, { forward: true }); // clicks go through; moves still reach the page
+  playIgnoring = true;
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('did-finish-load', () => {
+    if (playWin !== w) return;
+    w.webContents.send('play:start', {
+      toy, catX, catY, cell: settings.catSize, look: currentLook(), hat: hatOn(),
+      sound: { on: settings.soundEnabled, volume: settings.volume, quiet: isQuietNow() },
+    });
+    w.showInactive();
+    win.hide();
+  });
+  w.on('closed', () => { if (playWin === w) { playWin = null; playInfo = null; } });
+  w.loadFile(path.join(__dirname, 'play.html'));
+  playInfo = { toy, area, source, since: Date.now() };
+  clearTimeout(playTimer);
+  playTimer = setTimeout(() => stopPlay('3 minutes are up'), PLAY_MS);
+  behavior.lastActive = Date.now();
+  log(`PLAY (${source}) with the ${toy} on ${area.width}x${area.height}`);
+  updateTrayMenu();
+  return true;
+}
+
+async function stopPlay(reason, opts = {}) {
+  clearTimeout(playTimer);
+  playTimer = null;
+  const w = playWin;
+  const info = playInfo;
+  if (!w || w.isDestroyed()) return false;
+  playWin = null;
+  playInfo = null;
+  // where did she end up? -> the desktop cat window goes there (clamped) and stays
+  let pos = null;
+  try { pos = await w.webContents.executeJavaScript('window.__catPos && window.__catPos()'); } catch (_) { /* page gone */ }
+  try { w.webContents.send('play:stop'); } catch (_) { /* gone */ }
+  w.destroy();
+  if (win && !win.isDestroyed()) {
+    if (pos && info) {
+      const p = clampToWorkArea(info.area.x + pos.x - catCanvasLeft(), info.area.y + pos.y - SPRITE_TOP);
+      setWinPos(p.x, p.y);
+      savePosition();
+    }
+    if (!opts.noShow) {
+      win.showInactive();
+      win.setAlwaysOnTop(true, 'floating');
+    }
+    sendPose('sit', 1);
+  }
+  behavior.lastActive = Date.now();
+  log(`PLAY END (${reason})${pos ? `: ${pos.catches} catch(es)` : ''}`);
+  if (!opts.keepTray) updateTrayMenu();
+  return true;
+}
+const playing = () => !!playWin;
+function playMenu(source) {
+  if (playing()) return { label: 'Stop playing', click: () => stopPlay('menu') };
+  return { label: 'Play', submenu: PLAY_TOYS.map(([id, label]) => ({ label, click: () => startPlay(id, source) })) };
+}
+
 // --- Party (Stage 5) -----------------------------------------------------------
 // The first time she reaches her goal on a day: party hat + a disco ball with light beams
 // that pulse to a short, quiet synthesized party loop (~20 s). No music (lights pulse to a
@@ -1522,6 +1643,7 @@ const hatOn = () => !!partyActive || day.partyShownDate === todayKey();
 
 async function startParty(source) {
   checkDayRollover();
+  if (playing()) await stopPlay('party'); // the party is on the desktop cat
   if (source !== 'test' && day.partyShownDate !== day.date) {
     day.partyShownDate = day.date;
     saveCups();
@@ -1686,6 +1808,7 @@ function ringSoon(why) {
 }
 
 function fireReminder(reason) {
+  if (playing()) stopPlay('reminder'); // Stage 6: she comes back to show it
   const asleep = behavior.state === 'sleeping';
   if (!asleep) markActive('reminder');
   behavior.lastActive = Date.now();
@@ -1759,6 +1882,7 @@ function startAlarm(a, why) {
 
 function ringAlarm(reason) {
   if (!activeAlarm) return;
+  if (playing()) stopPlay('alarm');
   activeAlarm.nextAt = Date.now() + settings.repeatMinutes * 60000;
   log(`ALARM "${activeAlarm.text}" (${reason}) repeat #${activeAlarm.repeats}`);
   const asleep = behavior.state === 'sleeping';
@@ -2385,6 +2509,7 @@ function createWindow() {
 
 function showCat() {
   if (!win || win.isDestroyed()) return;
+  if (playing()) { stopPlay('show cat'); return; }
   if (behavior.state !== 'sleeping') reclamp();
   win.showInactive();
   win.setAlwaysOnTop(true, 'floating');
@@ -2392,6 +2517,7 @@ function showCat() {
 }
 
 function hideCat(source) {
+  if (playing()) stopPlay('hide cat', { noShow: true });
   if (!win || win.isDestroyed()) return;
   finishPress('hide');
   stopSlide();
@@ -3096,6 +3222,7 @@ function buildContextMenu() {
     { label: 'Test reminder', click: () => fireReminder('test') },
     ...pauseMenuItems('menu'),
     partyActive ? { label: 'Stop the party', click: () => endParty('menu') } : { label: 'Test party 🎉', click: () => startParty('test') },
+    playMenu('menu'),
     ...(activeAlarm ? [{ label: 'Dismiss alarm', click: () => dismissAlarm('menu') }] : []),
     ...(nagging ? [{ label: 'Dismiss reminder', click: () => dismissReminder('menu') }] : []),
     { type: 'separator' },
@@ -3122,7 +3249,7 @@ function createTray() {
   let img = nativeImage.createFromBuffer(fs.readFileSync(asset('tray.png')), { scaleFactor: 2 });
   if (img.isEmpty()) img = nativeImage.createFromPath(asset('cat_pixel.png'));
   tray = new Tray(img);
-  tray.on('click', () => (win && win.isVisible() ? hideCat('tray') : showCat()));
+  tray.on('click', () => (playing() ? stopPlay('tray') : win && win.isVisible() ? hideCat('tray') : showCat()));
   // our own themed menu (the native one can't take colours)
   tray.on('right-click', () => {
     updateTrayMenu();
@@ -3147,6 +3274,7 @@ function updateTrayMenu() {
     { label: 'Undo last cup', click: () => undoCup('tray') },
     { label: "Reset today's count", click: () => resetCups('tray') },
     ...pauseMenuItems('tray'),
+    playMenu('tray'),
     ...(activeAlarm ? [{ label: 'Dismiss alarm', click: () => dismissAlarm('tray') }] : []),
     ...(nagging ? [{ label: 'Dismiss reminder', click: () => dismissReminder('tray') }] : []),
     { label: 'Chase the mouse', type: 'checkbox', checked: settings.chaseMouse, click: (item) => applySettings({ chaseMouse: item.checked }) },
@@ -3183,7 +3311,7 @@ function updaterDeps(extra = {}) {
     getSettings: () => settings,
     setSettings: (p) => { Object.assign(settings, p); saveSettings(); },
     // checks wait while something is on her screen
-    busyReason: () => (nagging ? 'a water reminder is up' : activeAlarm ? 'an alarm is up' : partyActive ? 'a party is on' : null),
+    busyReason: () => (nagging ? 'a water reminder is up' : activeAlarm ? 'an alarm is up' : partyActive ? 'a party is on' : playing() ? 'she is playing' : null),
     // the one "update ready" bubble: never in quiet hours, while she sleeps / is hidden,
     // over another bubble, or over a fullscreen game
     announceBlock: async () => {
@@ -3319,6 +3447,14 @@ function registerIpc() {
     }
   }));
   ipcMain.on('press-start', () => { hideMenu('clicked the cat'); beginPress('page'); });
+  // play mode (Stage 6): over the toy / cat the overlay takes clicks, elsewhere they go through
+  const fromPlay = (e) => !!playWin && !playWin.isDestroyed() && e.sender === playWin.webContents;
+  ipcMain.on('play:hover', (e, over) => {
+    if (!fromPlay(e)) return;
+    playIgnoring = !over;
+    playWin.setIgnoreMouseEvents(playIgnoring, { forward: true });
+  });
+  ipcMain.on('play:stop', (e, reason) => { if (fromPlay(e)) stopPlay(String(reason || 'page')); });
   // our own menu (menu.html)
   const fromMenu = (e) => !!menuWin && !menuWin.isDestroyed() && e.sender === menuWin.webContents;
   const fromCatcher = (e) => !!catcherWin && !catcherWin.isDestroyed() && e.sender === catcherWin.webContents;
@@ -3879,6 +4015,88 @@ async function runSelftest() {
       history = keepHist;
       day.partyShownDate = '';
       resetCups('selftest');
+    }
+
+    // 0e. Stage 6: play mode
+    {
+      const b0 = win.getBounds();
+      const playItem = buildContextMenu().items.find((i) => i.label === 'Play');
+      record('Stage 6: menu "Play" with Ball, Fish on a stick, Yarn ball, Toy mouse', !!playItem && playItem.submenu.items.map((i) => i.label).join('|') === 'Ball|Fish on a stick|Yarn ball|Toy mouse');
+      const pj = (code) => (playWin ? playWin.webContents.executeJavaScript(code) : Promise.resolve(null));
+      clearReports();
+      playItem.submenu.items[0].click();
+      const pr = await waitFor((r) => r.type === 'play:ready', 8000);
+      await sleep(400);
+      const area = screen.getDisplayNearestPoint(cursorPoint()).workArea;
+      record('Stage 6: Play opens ONE overlay over the work area, the desktop cat hides, clicks go through', !!pr && !!playWin && playWin.isVisible() && !win.isVisible()
+        && JSON.stringify(playWin.getBounds()) === JSON.stringify(area) && playIgnoring === true && appWindows().filter((w) => w.getTitle() === 'WaterCat play').length === 1,
+      `${JSON.stringify(pr && pr.data)} bounds=${JSON.stringify(playWin && playWin.getBounds())}`);
+      // the cat walks / pounces and catches the ball when it lies next to her
+      await sleep(900); // she has landed on the bottom edge
+      const box = await pj('window.__playDebug.catBox()');
+      clearReports();
+      if (box) await pj(`window.__playDebug.putToy(${Math.round(box.x + box.w / 2 + 40)}, ${pr.data.h - 20})`);
+      const caught = await waitFor((r) => r.type === 'play:caught', 6000);
+      const purred = reports.some((r) => r.type === 'play:purr');
+      record('Stage 6: the cat goes for the toy, crouches, pounces and catches it (+ purr)', !!caught && caught.data.toy === 'ball' && purred, caught ? JSON.stringify(caught.data) : 'no catch');
+      // ball physics: dropped from high up it lands on the bottom edge
+      await pj(`window.__playDebug.putToy(${Math.round(area.width * 0.8)}, ${pr.data.h - 500})`);
+      await sleep(3000);
+      const bt = await pj('window.__playDebug.toy()');
+      record('Stage 6: the ball falls, bounces and settles on the bottom edge', !!bt && bt.y > pr.data.h - 40 && Math.abs(bt.vy) < 2, JSON.stringify(bt));
+      // over the toy the overlay takes clicks (to flick it), elsewhere they go through
+      const bt2 = await pj('window.__playDebug.toy()');
+      await pj(`window.__playDebug.pointerAt(${Math.round(bt2.x)}, ${Math.round(bt2.y)})`);
+      await sleep(200);
+      const takes = playIgnoring === false;
+      await pj('window.__playDebug.pointerAt(5, 5)');
+      await sleep(200);
+      record('Stage 6: clicks reach the overlay only over the toy / the cat', takes && playIgnoring === true);
+      // fish follows the pointer; yarn leaves a thread; the toy mouse runs from the pointer
+      clearReports();
+      startPlay('fish', 'selftest');
+      await waitFor((r) => r.type === 'play:ready' && r.data.toy === 'fish', 8000);
+      await pj(`window.__playDebug.pointerAt(${Math.round(area.width / 2)}, 300)`);
+      await sleep(1200);
+      const ft = await pj('window.__playDebug.toy()');
+      const fishOk = !!ft && Math.abs(ft.x - area.width / 2) < 40 && Math.abs(ft.y - 380) < 60;
+      clearReports();
+      startPlay('yarn', 'selftest');
+      await waitFor((r) => r.type === 'play:ready' && r.data.toy === 'yarn', 8000);
+      await pj(`window.__playDebug.putToy(${Math.round(area.width / 3)}, 80)`);
+      await sleep(900);
+      const yt = await pj('window.__playDebug.toy()');
+      clearReports();
+      startPlay('mouse', 'selftest');
+      await waitFor((r) => r.type === 'play:ready' && r.data.toy === 'mouse', 8000);
+      await sleep(600);
+      const m0 = await pj('window.__playDebug.toy()');
+      await pj(`window.__playDebug.pointerAt(${Math.round(m0.x - 60)}, ${Math.round(m0.y)})`);
+      await sleep(500);
+      const m1 = await pj('window.__playDebug.toy()');
+      record('Stage 6: fish dangles under the pointer, yarn leaves a thread, the toy mouse runs from the pointer', fishOk && !!yt && yt.trail > 3 && !!m1 && m1.x > m0.x + 20,
+        `fish=${JSON.stringify(ft)} yarnTrail=${yt && yt.trail} mouse ${m0 && Math.round(m0.x)} -> ${m1 && Math.round(m1.x)}`);
+      // a reminder ends play: she comes back to show it
+      clearReports();
+      fireReminder('test');
+      await sleep(800);
+      record('Stage 6: a reminder ends play (the overlay closes, the desktop cat is back)', !playWin && win.isVisible());
+      endReminder('selftest');
+      // "Stop playing": the cat window comes back where she ended up, same size, saved
+      startPlay('ball', 'selftest');
+      await waitFor((r) => r.type === 'play:ready', 8000);
+      await sleep(900);
+      record('Stage 6: menu shows "Stop playing" while she plays; the updater waits', buildContextMenu().items.some((i) => i.label === 'Stop playing') && updaterDeps().busyReason() === 'she is playing');
+      buildContextMenu().items.find((i) => i.label === 'Stop playing').click();
+      await sleep(800);
+      const b1 = win.getBounds();
+      const wa = screen.getDisplayNearestPoint({ x: b1.x + b1.width / 2, y: b1.y + b1.height / 2 }).workArea;
+      record('Stage 6: after play the desktop cat is back on screen where she ended up (same size, saved)', !playWin && win.isVisible() && b1.width === b0.width && b1.height === b0.height
+        && b1.x >= wa.x && b1.x + b1.width <= wa.x + wa.width && b1.y + b1.height <= wa.y + wa.height && settings.position && settings.position.x === b1.x && settings.position.y === b1.y,
+      `${JSON.stringify(b1)} area=${JSON.stringify(wa)}`);
+      record('Stage 6: no errors in the play page', !reports.some((r) => r.type === 'play:error'));
+      setWinPos(b0.x, b0.y);
+      await sleep(200);
     }
 
     // 1. Real (synthetic OS-level) click on the cat -> +1 cup, meow
