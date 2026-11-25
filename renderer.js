@@ -121,6 +121,7 @@
       pose, frame, facing, look: { ...look, mood: moodNow, ...(opts.lookDx ? { lookDx: opts.lookDx } : {}) },
       place: opts.place, spot: opts.spot, spotColors: look.spotColors, spotAlpha: opts.spotAlpha, overlay: opts.overlay,
       hat: hatOn, // Stage 5: party hat until midnight
+      accessories: look.accessories, seasonal: look.seasonal, catName: look.catName, // Stage 8
     });
     g.imageSmoothingEnabled = false;
     g.clearRect(0, 0, cat.width, cat.height);
@@ -135,6 +136,15 @@
     g.fillStyle = (look.colors && look.colors.whiskers) || '#d9dbe0';
     for (const [px, py, t] of S.whiskerSquares(scene.whiskers, CELL)) g.fillRect(px, py, t, t);
     paint(scene.over); // spot front + her paw / tail over the edge
+    // the name tag (Stage 8): her initial on the tag
+    if (scene.tag && scene.tag.text) {
+      const t = scene.tag;
+      g.fillStyle = '#3b2f2f';
+      g.font = `bold ${Math.max(7, Math.round(CELL * 1.6))}px 'Segoe UI', sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillText(t.text.charAt(0).toUpperCase(), (t.x + t.w / 2) * CELL, (t.y + t.h / 2) * CELL + 1);
+    }
     // Hit area = the VISIBLE cat only (furniture never takes the mouse).
     const bb = scene.catBox;
     const box = bb && { x: canvasLeft + bb.x * CELL, y: SPRITE_TOP + bb.y * CELL, width: bb.w * CELL, height: bb.h * CELL };

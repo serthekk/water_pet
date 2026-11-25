@@ -661,6 +661,17 @@
       }
     }
     const visible = cat.map((row, y) => row.map((c, x) => (c && !over[y][x] ? c : null)));
+    // Accessories + seasonal outfit (Stage 8): over the cat, under a spot's front edge and
+    // under the party hat (which also hides head items). Not part of the hit area.
+    let tag = null;
+    let accClipped = 0;
+    if (o.accessories || o.seasonal) {
+      const acc = accessoryCells(o.pose, o.frame, o.facing || 1, o.place, o);
+      const before = clipped;
+      paint(under, acc.cells);
+      accClipped = clipped - before;
+      tag = acc.tag;
+    }
     // Party hat (Stage 5): on her forehead in every pose, painted over the cat but under
     // a spot's front (in the box only its tip shows). Not part of the hit area.
     let hatBox = null;
@@ -676,7 +687,199 @@
         hatBox = { x: at.x, y: at.y, w: hat[0].length, h: hat.length };
       }
     }
-    return { under, over, whiskers: whiskerLines(o.pose, o.frame, L, o.facing || 1, o.place), catBox: bbox(visible), hatBox, clipped };
+    return { under, over, whiskers: whiskerLines(o.pose, o.frame, L, o.facing || 1, o.place), catBox: bbox(visible), hatBox, tag, accClipped, clipped };
+  }
+
+  // --- Accessories + seasonal outfits (Stage 8) ---------------------------------------
+  // Anchors per pose (canvas cells, facing right, no `place`): head = centre x + forehead
+  // row, earR = right ear base, eyes = centre (+ side view), neck = band centre
+  // (h = horizontal band, v = vertical band, len cells).
+  const SIT_ANCH = { head: [14.5, 12], earR: [19, 10], eyes: [14.5, 16, false], neck: [14.5, 20, 'h', 10] };
+  const ANCHORS = {
+    sit: SIT_ANCH, yawn: SIT_ANCH, groom: SIT_ANCH, scratch: SIT_ANCH,
+    'stretch/yawn': SIT_ANCH,
+    'stretch/tall': { head: [14.5, 11], earR: [19, 9], eyes: [14.5, 15, false], neck: [14.5, 19, 'h', 10] },
+    belly: { head: [7.5, 18], earR: [8, 17], eyes: [7.5, 21, 'small'], neck: [11, 21.5, 'v', 4] },
+    sleep: { head: [8.5, 19], earR: [10, 18], eyes: [9, 21, 'small'], neck: [13, 21.5, 'v', 4] },
+    walk: { head: [21.5, 16], earR: [23, 14], eyes: [24, 17.5, true], neck: [17, 19.5, 'v', 4] },
+    crouch: { head: [21.5, 19], earR: [23, 17], eyes: [24, 20.5, true], neck: [17, 21.5, 'v', 4] },
+    pounce: { head: [23, 18], earR: [25, 16], eyes: [25, 19.5, true], neck: [19, 19.5, 'v', 4] },
+  };
+  // Items: slot + default colours (a = main, b = second); grids use a / b / K / w.
+  const ACCESSORIES = {
+    bow: { label: 'Bow', slot: 'ear', colors: { a: '#ff5fa2', b: '#c2185b' } },
+    glasses: { label: 'Glasses', slot: 'eyes', colors: { a: '#3b2f2f' } },
+    sunglasses: { label: 'Sunglasses', slot: 'eyes', colors: { a: '#1d1d22', b: '#3a3550' } },
+    crown: { label: 'Crown', slot: 'head', colors: { a: '#ffd23f', b: '#ff5f7e' } },
+    scarf: { label: 'Scarf', slot: 'neck', colors: { a: '#e8913a', b: '#fff6ea' } },
+    bandana: { label: 'Bandana', slot: 'neck', colors: { a: '#d6457a', b: '#ffffff' } },
+    bell: { label: 'Bell collar', slot: 'neck', colors: { a: '#c0392b', b: '#ffd23f' } },
+    nametag: { label: 'Collar with name tag', slot: 'neck', colors: { a: '#5fb4e8', b: '#ffd23f' } },
+  };
+  const SEASONAL = {
+    santa: { label: 'Santa hat', slot: 'head', colors: { a: '#d32f2f', b: '#ffffff' } },
+    bunny: { label: 'Bunny ears', slot: 'head', colors: { a: '#ffffff', b: '#f4a6b8', c: '#b07bff' } },
+    witch: { label: 'Witch hat', slot: 'head', colors: { a: '#2b2533', b: '#8e5ea8' } },
+    heartpin: { label: 'Heart pin', slot: 'chest', colors: { a: '#ff5f7e', b: '#ffd1dc' } },
+  };
+  const ACC_IDS = Object.keys(ACCESSORIES);
+  const SEASONAL_IDS = Object.keys(SEASONAL);
+  const HEX6 = /^#[0-9a-f]{6}$/;
+  // { id: { on, colors: { a, b } } } -> only known items + valid colours (per cat, Customize)
+  function cleanAccessories(raw) {
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const id of ACC_IDS) {
+      const v = raw[id];
+      if (!v || typeof v !== 'object') continue;
+      const colors = {};
+      for (const k of Object.keys(ACCESSORIES[id].colors)) {
+        const c = v.colors && typeof v.colors[k] === 'string' ? v.colors[k].toLowerCase() : '';
+        if (HEX6.test(c)) colors[k] = c;
+      }
+      out[id] = { on: v.on === true, colors };
+    }
+    return out;
+  }
+  // Which seasonal outfit fits a date (or null): Santa all December, a heart pin 7-14 Feb,
+  // bunny ears a week either side of Easter Sunday, a witch hat 24 Oct - 1 Nov.
+  function easterSunday(year) {
+    const a = year % 19, b = Math.floor(year / 100), c = year % 100, d = Math.floor(b / 4), e = b % 4;
+    const f = Math.floor((b + 8) / 25), gg = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - gg + 15) % 30;
+    const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31);
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(year, month - 1, day);
+  }
+  function seasonalFor(date) {
+    const m = date.getMonth();
+    const d = date.getDate();
+    if (m === 11) return 'santa';
+    if (m === 1 && d >= 7 && d <= 14) return 'heartpin';
+    if ((m === 9 && d >= 24) || (m === 10 && d === 1)) return 'witch';
+    const e = easterSunday(date.getFullYear());
+    const days = Math.round((new Date(date.getFullYear(), m, d) - e) / 86400000);
+    if (days >= -7 && days <= 7) return 'bunny';
+    return null;
+  }
+
+  // Grids (facing right). Letters: a / b / c = item colours, K = outline, w = white.
+  const ITEM_GRIDS = {
+    bow: ['aa.aa', 'abKba', 'aa.aa'],
+    crown: ['a..a..a', 'aa.a.aa', 'abababa', 'aaaaaaa'],
+    // front glasses frame each 3x3 eye (eyes at x 10-12 / 17-19, rows 15-17 when sitting)
+    glassesFront: ['aaaaa..aaaaa', 'a...aaaa...a', 'a...a..a...a', 'a...a..a...a', 'aaaaa..aaaaa'],
+    sunglassesFront: ['aaaaa..aaaaa', 'abbbaaaabbba', 'abbba..abbba', 'abbba..abbba', 'aaaaa..aaaaa'],
+    glassesSide: ['..aaa', 'aaa.a', '..aaa'],
+    sunglassesSide: ['..aaa', 'aaaba', '..aaa'],
+    glassesSmall: ['aaaaaa', 'a.aa.a', 'aaaaaa'], // the smaller face when lying down
+    sunglassesSmall: ['aaaaaa', 'abaaba', 'aaaaaa'],
+    santa: ['.....bb', '....aab', '...aaa.', '..aaaa.', '.aaaaa.', 'bbbbbbb'],
+    witch: ['....K....', '....a....', '...aaa...', '...bbb...', '..aaaaa..', 'aaaaaaaaa'],
+    bunny: ['.a.....a.', 'aba...aba', 'aba...aba', 'aba...aba', '.a.....a.', 'ccccccccc'],
+    heartpin: ['a.a', 'aba', '.a.'],
+  };
+  const SEASONAL_GRID = { santa: 'santa', witch: 'witch', bunny: 'bunny', heartpin: 'heartpin' };
+
+  // Cells of all worn items for a pose: [[x, y, colour], ...] (+ the name tag box for text).
+  function accessoryCells(pose, frame, facing, place, o) {
+    const A = ANCHORS[`${pose}/${frame}`] || ANCHORS[pose];
+    if (!A) return { cells: [], tag: null };
+    const lay = LAYOUT[pose] || LAYOUT.sit;
+    const rows = (FRAMES[pose] || FRAMES.sit)[frame] || Object.values(FRAMES[pose] || FRAMES.sit)[0];
+    const w = Math.max(...rows.map((r) => r.length));
+    const pdx = (place && place.dx) || 0;
+    const pdy = (place && place.dy) || 0;
+    // canvas x for facing right -> this facing (mirrored around the frame)
+    const fx = (x) => pdx + (facing === -1 ? 2 * lay.col + w - 1 - x : x);
+    const fy = (y) => y - pdy;
+    const cells = [];
+    let tag = null;
+    const stamp = (grid, colors, x0, y0) => { // x0, y0: top-left for facing right
+      grid.forEach((row, y) => [...row].forEach((ch, x) => {
+        if (ch === '.') return;
+        const col = ch === 'K' ? '#2b2e35' : ch === 'w' ? '#ffffff' : colors[ch];
+        if (!col) return;
+        cells.push([Math.round(fx(x0 + x)), Math.round(fy(y0 + y)), col]); // fx mirrors for facing left
+      }));
+    };
+    const acc = o.accessories || {};
+    const colorsOf = (id) => ({ ...ACCESSORIES[id].colors, ...((acc[id] && acc[id].colors) || {}) });
+    const on = (id) => acc[id] && acc[id].on;
+    const headBlocked = !!o.hat || o.spot === 'box'; // party hat wins; in the box only the ears show
+    // neck (band first, so the extras sit on top)
+    const [nx, ny, dir, len] = A.neck;
+    const band = (col, thick = 1) => {
+      for (let i = 0; i < len; i++) {
+        for (let t = 0; t < thick; t++) {
+          if (dir === 'h') cells.push([fx(Math.round(nx - len / 2 + 0.5) + i), fy(ny + t), col]);
+          else cells.push([fx(nx + t), fy(Math.round(ny - len / 2 + 0.5) + i), col]);
+        }
+      }
+    };
+    // "under the chin": below a horizontal band, under the bottom end of a vertical one
+    const below = dir === 'h' ? (dx, dy) => [nx - 0.5 + dx, ny + 1 + dy] : (dx, dy) => [nx + Math.sign(dx), ny + len / 2 + dy];
+    for (const id of ['scarf', 'bandana', 'bell', 'nametag']) {
+      if (!on(id)) continue;
+      const c = colorsOf(id);
+      if (id === 'scarf') {
+        band(c.a, 2);
+        for (let i = 0; i < len; i += 2) cells.push(dir === 'h' ? [fx(Math.round(nx - len / 2 + 0.5) + i), fy(ny), c.b] : [fx(nx), fy(Math.round(ny - len / 2 + 0.5) + i), c.b]);
+        // the loose end
+        for (let t = 0; t < 3; t++) {
+          const [ex, ey] = dir === 'h' ? [nx + 2.5, ny + 2 + t] : [nx - 1, ny + 1.5 + t];
+          cells.push([fx(Math.round(ex)), fy(Math.round(ey)), t % 2 ? c.b : c.a], [fx(Math.round(ex) + 1), fy(Math.round(ey)), c.a]);
+        }
+      } else {
+        band(c.a);
+        if (id === 'bandana') {
+          const rowsN = dir === 'h' ? 3 : 2;
+          for (let r = 1; r <= rowsN; r++) {
+            const half = dir === 'h' ? Math.max(0, Math.floor((len - 2 * r) / 2)) : rowsN - r;
+            for (let k = -half; k <= half; k++) {
+              const [bx, by] = dir === 'h' ? [nx - 0.5 + k, ny + r] : [nx + k, ny + len / 2 - 0.5 + r];
+              cells.push([fx(Math.round(bx)), fy(Math.round(by)), (r + k) % 3 === 0 ? c.b : c.a]);
+            }
+          }
+        }
+        if (id === 'bell' || id === 'nametag') {
+          const [bx, by] = below(0, 0);
+          const grid = id === 'bell' ? ['bbb', '.b.'] : ['bbbb', 'bbbb', 'bbbb'];
+          const gx = Math.round(bx - (grid[0].length - 1) / 2);
+          stamp(grid, c, gx, Math.round(by));
+          if (id === 'nametag') tag = { x: Math.min(fx(gx), fx(gx + grid[0].length - 1)), y: fy(Math.round(by)), w: grid[0].length, h: grid.length, text: (o.catName || '').trim() };
+        }
+      }
+    }
+    // chest pin (seasonal heart)
+    if (o.seasonal === 'heartpin') {
+      // under the chin when sitting; beside the neck when lying / walking (stays on the canvas)
+      const [px, py] = dir === 'h' ? below(-3, 1) : [nx - 2, ny - 1];
+      stamp(ITEM_GRIDS.heartpin, SEASONAL.heartpin.colors, Math.round(px - 1), Math.round(py));
+    }
+    // eyes
+    for (const id of ['glasses', 'sunglasses']) {
+      if (!on(id)) continue;
+      const [ex, ey, side] = A.eyes;
+      const grid = ITEM_GRIDS[`${id}${side === 'small' ? 'Small' : side ? 'Side' : 'Front'}`];
+      const gx = side === true ? Math.round(ex) - grid[0].length + 2 : Math.round(ex - (grid[0].length - 1) / 2);
+      stamp(grid, colorsOf(id), gx, Math.round(ey - (grid.length - 1) / 2));
+    }
+    // head + ear
+    if (!headBlocked) {
+      const [hx, hy] = A.head;
+      if (on('crown')) stamp(ITEM_GRIDS.crown, colorsOf('crown'), Math.round(hx - 3), hy - 3);
+      const s = o.seasonal && SEASONAL[o.seasonal] && SEASONAL[o.seasonal].slot === 'head' ? o.seasonal : null;
+      if (s) {
+        const grid = ITEM_GRIDS[SEASONAL_GRID[s]];
+        stamp(grid, SEASONAL[s].colors, Math.round(hx - (grid[0].length - 1) / 2), hy - grid.length + 1);
+      }
+      if (on('bow')) {
+        const [bx, by] = A.earR;
+        stamp(ITEM_GRIDS.bow, colorsOf('bow'), bx - 2, by);
+      }
+    }
+    return { cells, tag };
   }
 
   // Where the party hat goes: centred on the head column (the face anchor of the pose),
@@ -749,7 +952,8 @@
     CANVAS, PARTS, PRESETS, PATTERNS, GARGORL,
     POSES: Object.fromEntries(Object.entries(FRAMES).map(([p, f]) => [p, Object.keys(f)])),
     presetList: () => Object.entries(PRESETS).map(([id, p]) => ({ id, label: p.label, description: p.description || '' })),
-    render, renderProp, hatPlace, bbox, validate, whiskerLines, whiskerSquares, noseRect,
+    render, renderProp, hatPlace, bbox, validate,
+    ACCESSORIES, SEASONAL, ACC_IDS, SEASONAL_IDS, cleanAccessories, seasonalFor, accessoryCells, easterSunday, whiskerLines, whiskerSquares, noseRect,
     renderScene, spotCells, SPOT_IDS, SPOT_PARTS, SPOT_DEFAULT_COLORS, SPOT_LABELS, SPOT_CAT, tailColor,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

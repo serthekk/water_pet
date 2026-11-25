@@ -31,7 +31,7 @@
 
   // ---- drawing --------------------------------------------------------------
   function lookOf(s) {
-    return { colors: s.colors, pattern: s.furPattern, ears: s.earStyle, fluffy: s.fluffy, tufts: s.tufts, tail: s.tail, whiskers: s.whiskersEnabled };
+    return { colors: s.colors, pattern: s.furPattern, ears: s.earStyle, fluffy: s.fluffy, tufts: s.tufts, tail: s.tail, whiskers: s.whiskersEnabled, accessories: s.accessories, catName: s.catName };
   }
   function draw(canvas, look, frame = 'sit') {
     const g = canvas.getContext('2d');
@@ -47,6 +47,13 @@
     }));
     g.fillStyle = look.colors.whiskers;
     for (const [px, py, t] of S.whiskerSquares(S.whiskerLines('sit', frame, look, 1), cell)) g.fillRect(px, py, t, t);
+    // Stage 8: what she wears
+    if (look.accessories) {
+      for (const [x, y, col] of S.accessoryCells('sit', frame, 1, null, { accessories: look.accessories, catName: look.catName }).cells) {
+        g.fillStyle = col;
+        g.fillRect(x * cell, y * cell, cell, cell);
+      }
+    }
     g.restore();
   }
 
@@ -329,8 +336,7 @@
   // ---- tabs ------------------------------------------------------------------------
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
-    $('panel-basic').hidden = t.dataset.tab !== 'basic';
-    $('panel-advanced').hidden = t.dataset.tab !== 'advanced';
+    for (const name of ['basic', 'advanced', 'accessories']) $(`panel-${name}`).hidden = t.dataset.tab !== name;
   }));
 
   // ---- Basic: presets --------------------------------------------------------------
@@ -551,6 +557,90 @@
     showStatus(r.ok ? `Imported${r.name ? ` "${r.name}"` : ''} ✓` : r.error, !r.ok);
   });
 
+  // ---- Accessories (Stage 8, per cat) --------------------------------------------------
+  // One row per item: on/off + its colours (swatch, hex field, eyedropper). Saved for THIS cat.
+  const accList = $('acc-list');
+  const COLOR_NAMES = { a: 'Colour', b: 'Second colour' };
+  function accState() {
+    return JSON.parse(JSON.stringify(st.accessories || {}));
+  }
+  function setAcc(id, patch) {
+    const acc = accState();
+    const cur = acc[id] || { on: false, colors: {} };
+    acc[id] = { on: 'on' in patch ? patch.on : cur.on, colors: { ...cur.colors, ...(patch.colors || {}) } };
+    queue({ accessories: acc });
+    api.report('accessory', { catId: selectedId, id, ...patch });
+  }
+  function buildAccessories() {
+    accList.replaceChildren();
+    for (const id of S.ACC_IDS) {
+      const item = S.ACCESSORIES[id];
+      const li = document.createElement('li');
+      li.dataset.acc = id;
+      const on = document.createElement('label');
+      on.className = 'acc-on';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.addEventListener('change', () => setAcc(id, { on: cb.checked }));
+      on.append(cb, document.createTextNode(` ${item.label}`));
+      li.appendChild(on);
+      for (const key of Object.keys(item.colors)) {
+        const box = document.createElement('span');
+        box.className = 'acc-color';
+        box.title = COLOR_NAMES[key] || key;
+        const sw = document.createElement('input');
+        sw.type = 'color';
+        sw.dataset.key = key;
+        const hex = document.createElement('input');
+        hex.type = 'text';
+        hex.maxLength = 7;
+        hex.spellcheck = false;
+        hex.dataset.key = key;
+        const drop = document.createElement('button');
+        drop.type = 'button';
+        drop.textContent = '💧';
+        drop.title = 'Pick a colour from the screen';
+        sw.addEventListener('input', () => { hex.value = sw.value; setAcc(id, { colors: { [key]: sw.value.toLowerCase() } }); });
+        hex.addEventListener('input', () => {
+          let v = hex.value.trim();
+          if (/^[0-9a-fA-F]{6}$/.test(v)) v = `#${v}`;
+          if (/^#[0-9a-fA-F]{6}$/.test(v)) { sw.value = v.toLowerCase(); setAcc(id, { colors: { [key]: v.toLowerCase() } }); }
+        });
+        drop.addEventListener('click', async () => {
+          if (typeof window.EyeDropper !== 'function') return showStatus('The eyedropper is not available here - type a hex colour', true);
+          try {
+            const r = await new window.EyeDropper().open();
+            const v = r.sRGBHex.length === 7 ? r.sRGBHex.toLowerCase() : rgbToHex(...(r.sRGBHex.match(/\d+/g) || [0, 0, 0]).map(Number));
+            sw.value = v;
+            hex.value = v;
+            setAcc(id, { colors: { [key]: v } });
+          } catch (_) { /* cancelled */ }
+        });
+        box.append(sw, hex, drop);
+        li.appendChild(box);
+      }
+      accList.appendChild(li);
+    }
+  }
+  function fillAccessories() {
+    if (!accList.children.length) buildAccessories();
+    const acc = st.accessories || {};
+    accList.querySelectorAll('li').forEach((li) => {
+      const id = li.dataset.acc;
+      const item = S.ACCESSORIES[id];
+      const cur = acc[id] || {};
+      li.querySelector('.acc-on input').checked = !!cur.on;
+      li.classList.toggle('on', !!cur.on);
+      li.querySelectorAll('input[data-key]').forEach((inp) => {
+        const v = (cur.colors && cur.colors[inp.dataset.key]) || item.colors[inp.dataset.key];
+        if (document.activeElement !== inp) inp.value = v;
+      });
+    });
+    $('acc-who').textContent = pr().they;
+    $('seasonalOutfits').checked = st.seasonalOutfits !== false;
+  }
+  $('seasonalOutfits').addEventListener('change', (e) => setGlobal({ seasonalOutfits: e.target.checked }));
+
   // ---- fill from settings ------------------------------------------------------------
   function fillLook() {
     for (const part of BASIC_PARTS) {
@@ -604,6 +694,7 @@
     fillMyPresets(s.customPresets || []);
     applyLock();
     fillSleep();
+    fillAccessories();
   }
 
   // Something changed elsewhere (menu, Settings, another cat): reload the cat we show.

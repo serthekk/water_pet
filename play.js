@@ -292,7 +292,7 @@
       // the cat
       const pose = cat.state === 'walk' ? 'walk' : cat.state === 'crouch' ? 'crouch' : cat.state === 'pounce' ? 'pounce' : 'sit';
       const fr = pose === 'walk' ? cat.frame : pose === 'crouch' ? cat.frame : pose === 'pounce' ? 'a' : cat.state === 'happy' ? 'squint' : 'sit';
-      const sc = S.renderScene({ pose, frame: fr, facing: cat.facing, look, hat });
+      const sc = S.renderScene({ pose, frame: fr, facing: cat.facing, look, hat, accessories: look.accessories, seasonal: look.seasonal, catName: look.catName });
       const ox = Math.round(cat.x);
       const oy = Math.round(cat.y + cat.yOff);
       sc.under.forEach((row, y) => row.forEach((col, x) => { if (col) { g.fillStyle = col; g.fillRect(ox + x * cell, oy + y * cell, cell, cell); } }));
@@ -341,6 +341,7 @@
     document.body.classList.toggle('grab', over && (toyKind === 'ball' || toyKind === 'yarn') && !toy.grabbed && hit(p, toyRect(), 8));
   }
   window.addEventListener('mousemove', (e) => {
+    if (pointer.frozen) return; // selftest: a fake pointer, the real mouse is ignored
     pointer.x = e.clientX;
     pointer.y = e.clientY;
     pointer.inside = true;
@@ -403,6 +404,6 @@
     putToy: (x, y) => { toy.x = x; toy.y = y; toy.vx = 0; toy.vy = 0; },
     catBox: () => cat.box,
     toy: () => ({ x: toy.x, y: toy.y, vx: toy.vx, vy: toy.vy, trail: toy.trail.length }),
-    pointerAt: (x, y) => { pointer.x = x; pointer.y = y; pointer.inside = true; },
+    pointerAt: (x, y) => { pointer.x = x; pointer.y = y; pointer.inside = true; pointer.frozen = true; },
   };
 })();

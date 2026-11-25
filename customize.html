@@ -41,6 +41,7 @@
   <nav class="tabs" role="tablist">
     <button id="tab-basic" class="tab active" type="button" role="tab" data-tab="basic">Basic</button>
     <button id="tab-advanced" class="tab" type="button" role="tab" data-tab="advanced">Advanced</button>
+    <button id="tab-accessories" class="tab" type="button" role="tab" data-tab="accessories">🎀 Accessories</button>
   </nav>
 
   <main>
@@ -137,6 +138,16 @@
         <button id="import" type="button">Import look…</button>
       </div>
       <p class="hint">A small .json file with her colours, pattern, tail and whiskers.</p>
+    </section>
+
+    <!-- ACCESSORIES (Stage 8, per cat) -->
+    <section id="panel-accessories" class="panel" hidden>
+      <h2>Accessories</h2>
+      <p class="hint">Tick what <span id="acc-who">she</span> wears; pick colours with the swatch, a hex code or the 💧 eyedropper. The party hat goes over head items.</p>
+      <ul id="acc-list" class="acc-list"></ul>
+      <h2>Seasonal outfits</h2>
+      <label class="check-row"><input id="seasonalOutfits" type="checkbox"> Wear them automatically</label>
+      <p class="hint">Santa hat in December, bunny ears around Easter, a witch hat at Halloween, a heart pin at Valentine's. Preview each from the right-click menu.</p>
     </section>
   </main>
 

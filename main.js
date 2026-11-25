@@ -140,6 +140,7 @@ const DEFAULT_SETTINGS = {
   remindersPausedUntil: 0, // ms timestamp; 0 = not paused
   eyesFollow: true, // Stage 7: her pupils follow the mouse
   moodEnabled: true, // Stage 9: ears / eyes / tail follow today's progress
+  seasonalOutfits: true, // Stage 8: Santa hat in December, bunny ears at Easter, witch hat at Halloween, heart pin at Valentine's
   taskbarWalk: false, // Stage 7: now and then she strolls along the bottom of the screen
   chaseMouse: false,
   theme: 'cream', // colours of the right-click menu + every window (themes.js); 'custom' = customTheme
@@ -508,7 +509,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
     const list = raw.customPresets.map((p) => p && sanitizeCustomPreset(p)).filter(Boolean);
     if (list.length === raw.customPresets.length) s.customPresets = list;
   }
-  for (const k of ['moodEnabled', 'rotateReminders', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
+  for (const k of ['seasonalOutfits', 'moodEnabled', 'rotateReminders', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
   // older files: sleepWhenIdle / sleepAfterMinutes (old default 10 -> new default 15)
   if (typeof raw.idleSleepEnabled !== 'boolean' && typeof raw.sleepWhenIdle === 'boolean') s.idleSleepEnabled = raw.sleepWhenIdle;
   if (raw.idleSleepMinutes === undefined && Number.isInteger(raw.sleepAfterMinutes) && raw.sleepAfterMinutes !== 10) raw = { ...raw, idleSleepMinutes: Math.min(120, raw.sleepAfterMinutes) };
@@ -535,8 +536,8 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
   };
   const sc = smallMap(raw.sleepSpotColors, (v) => typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v));
   if (sc) s.sleepSpotColors = sc;
-  const acc = smallMap(raw.accessories, (v) => typeof v === 'boolean' || (typeof v === 'string' && v.length <= 20) || (v && typeof v === 'object' && !Array.isArray(v)));
-  if (acc) s.accessories = acc;
+  // Stage 8: { bow: { on, colors: { a, b } }, ... } - only known items + valid colours
+  if (raw.accessories && typeof raw.accessories === 'object' && !Array.isArray(raw.accessories)) s.accessories = CatSprites.cleanAccessories(raw.accessories);
   if (Number.isInteger(raw.idleSleepMinutes) && raw.idleSleepMinutes >= 1 && raw.idleSleepMinutes <= 120) s.idleSleepMinutes = raw.idleSleepMinutes;
   const size = typeof raw.catSize === 'string' ? SIZE_WORDS[raw.catSize] : raw.catSize;
   if (Number.isInteger(size) && size >= CAT_SIZES.min && size <= CAT_SIZES.max) s.catSize = size;
@@ -1061,7 +1062,7 @@ function saveSettings() {
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
   'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
-  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'reminderMessages', 'rotateReminders', 'meowCapMinutes', 'remindersPausedUntil', 'moodEnabled'];
+  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'reminderMessages', 'rotateReminders', 'meowCapMinutes', 'remindersPausedUntil', 'moodEnabled', 'seasonalOutfits'];
 
 // For the Settings toolbar (Sleep / Wake, Hide / Show).
 function catState() {
@@ -1152,7 +1153,7 @@ function applySettings(partial) {
   }
   if (changed.includes('sleepSpot') && behavior.state === 'sleeping') log(`sleeping spot for ${settings.activeCatId} set to ${settings.sleepSpot} (used next time she sleeps)`);
   if (changed.includes('catSize')) applyWinSize();
-  if (['breed', 'tail', 'whiskersEnabled', 'sleepSpotColors', ...LOOK_KEYS].some((k) => changed.includes(k)) && win && !win.isDestroyed()) {
+  if (['breed', 'tail', 'whiskersEnabled', 'sleepSpotColors', 'accessories', 'catName', 'seasonalOutfits', ...LOOK_KEYS].some((k) => changed.includes(k)) && win && !win.isDestroyed()) {
     win.webContents.send('colors-changed', currentLook());
   }
   if (changed.includes('catName') && settings.catName !== 'Gargorl' && prev.catName === 'Gargorl' && !changed.includes('catDescriptor')) {
@@ -1508,6 +1509,44 @@ function moodTick() {
   if (lastMood !== null) log(`mood: ${lastMood} -> ${m} (${day.cups}/${settings.goalCups})`);
   lastMood = m;
   pushState();
+}
+
+// --- Seasonal outfits (Stage 8) --------------------------------------------------------
+// Automatic (setting seasonalOutfits): Santa hat in December, heart pin 7-14 Feb, bunny
+// ears a week around Easter, witch hat 24 Oct - 1 Nov. Each can be previewed from the
+// menu for a few seconds. The party hat wins over head items (catsprite.accessoryCells).
+let SEASON_PREVIEW_MS = 10000;
+let seasonPreview = null; // { id, timer }
+let lastSeason = null;
+function seasonalNow() {
+  if (seasonPreview) return seasonPreview.id;
+  return settings.seasonalOutfits ? CatSprites.seasonalFor(nowDate()) : null;
+}
+function previewSeason(id) {
+  if (!CatSprites.SEASONAL_IDS.includes(id)) return false;
+  if (seasonPreview) clearTimeout(seasonPreview.timer);
+  seasonPreview = { id, timer: setTimeout(() => { seasonPreview = null; lookChanged('preview over'); }, SEASON_PREVIEW_MS) };
+  lookChanged(`preview ${id}`);
+  return true;
+}
+function lookChanged(why) {
+  lastSeason = seasonalNow();
+  if (win && !win.isDestroyed()) win.webContents.send('colors-changed', currentLook());
+  log(`look refreshed (${why}): seasonal ${lastSeason || 'none'}`);
+}
+// called every tick: a new season starts at midnight
+function seasonTick() {
+  if (seasonalNow() !== lastSeason) lookChanged('season changed');
+}
+function seasonalMenu() {
+  return {
+    label: 'Seasonal outfits',
+    submenu: [
+      { label: 'Wear them automatically', type: 'checkbox', checked: settings.seasonalOutfits, click: (item) => applySettings({ seasonalOutfits: item.checked }) },
+      { type: 'separator' },
+      ...CatSprites.SEASONAL_IDS.map((id) => ({ label: `Preview: ${CatSprites.SEASONAL[id].label}`, click: () => previewSeason(id) })),
+    ],
+  };
 }
 
 // --- Play mode (Stage 6) -----------------------------------------------------------
@@ -1946,6 +1985,7 @@ function tick() {
     checkAlarms();
     if (settings.remindersPausedUntil && !remindersPaused()) resumeReminders('pause over');
     moodTick(); // Stage 9: the mood follows the clock too
+    seasonTick(); // Stage 8: a seasonal outfit starts / ends at midnight
     if (activeAlarm && Date.now() >= activeAlarm.nextAt) {
       activeAlarm.repeats += 1;
       ringAlarm('repeat');
@@ -2428,6 +2468,9 @@ const currentLook = () => ({
   tail: settings.tail,
   whiskers: settings.whiskersEnabled,
   spotColors: { ...CatSprites.SPOT_DEFAULT_COLORS, ...settings.sleepSpotColors },
+  accessories: settings.accessories || {}, // Stage 8
+  seasonal: seasonalNow(),
+  catName: settings.catName, // for the name tag
 });
 
 // --- Window ------------------------------------------------------------------
@@ -3232,6 +3275,7 @@ function buildContextMenu() {
     sleepSpotMenu(),
     { label: 'Chase the mouse', type: 'checkbox', checked: settings.chaseMouse, click: (item) => applySettings({ chaseMouse: item.checked }) },
     { label: 'Walk along the taskbar', type: 'checkbox', checked: settings.taskbarWalk, click: (item) => applySettings({ taskbarWalk: item.checked }) },
+    seasonalMenu(),
     { label: 'Customize cat…', click: () => openCustomize() },
     { label: 'Settings…', click: () => openSettings() },
     { label: 'Stats…', click: () => openStats('menu') },
@@ -3536,7 +3580,7 @@ function registerIpc() {
   ipcMain.handle('customize:import', (_e, catId) => importLook(known(catId)));
   ipcMain.handle('customize:preview-sleep', (_e, spot) => previewSleep(String(spot)));
   // global (not per-cat) sleep settings edited from Customize
-  const GLOBAL_FROM_CUSTOMIZE = ['idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'autoUpdate', 'updateChannel'];
+  const GLOBAL_FROM_CUSTOMIZE = ['idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'autoUpdate', 'updateChannel', 'seasonalOutfits'];
   // updates (footer of the Customize window)
   ipcMain.handle('customize:update-status', () => updateStatus());
   ipcMain.handle('customize:check-updates', () => manualUpdateCheck('customize'));
@@ -4017,8 +4061,10 @@ async function runSelftest() {
       resetCups('selftest');
     }
 
-    // 0e. Stage 6: play mode
+    // 0e. Stage 6: play mode (on the primary display, whatever screen her real mouse is on)
     {
+      const prim = screen.getPrimaryDisplay().workArea;
+      fakeCursor = { x: prim.x + Math.round(prim.width / 2), y: prim.y + Math.round(prim.height / 2) };
       const b0 = win.getBounds();
       const playItem = buildContextMenu().items.find((i) => i.label === 'Play');
       record('Stage 6: menu "Play" with Ball, Fish on a stick, Yarn ball, Toy mouse', !!playItem && playItem.submenu.items.map((i) => i.label).join('|') === 'Ball|Fish on a stick|Yarn ball|Toy mouse');
@@ -4095,8 +4141,67 @@ async function runSelftest() {
         && b1.x >= wa.x && b1.x + b1.width <= wa.x + wa.width && b1.y + b1.height <= wa.y + wa.height && settings.position && settings.position.x === b1.x && settings.position.y === b1.y,
       `${JSON.stringify(b1)} area=${JSON.stringify(wa)}`);
       record('Stage 6: no errors in the play page', !reports.some((r) => r.type === 'play:error'));
+      fakeCursor = null;
       setWinPos(b0.x, b0.y);
       await sleep(200);
+    }
+
+    // 0f. Stage 8: accessories + seasonal outfits
+    {
+      const S8 = CatSprites;
+      const d = (y, m, dd) => new Date(y, m - 1, dd);
+      record('Stage 8: seasonal dates: Santa in December, heart pin at Valentine\'s, witch hat at Halloween, bunny ears at Easter, none in July',
+        S8.seasonalFor(d(2026, 12, 10)) === 'santa' && S8.seasonalFor(d(2027, 2, 12)) === 'heartpin' && S8.seasonalFor(d(2026, 10, 31)) === 'witch'
+        && S8.seasonalFor(d(2027, 3, 28)) === 'bunny' && S8.seasonalFor(d(2027, 4, 3)) === 'bunny' && S8.seasonalFor(d(2027, 7, 1)) === null);
+      // every item and outfit in every pose / frame / facing stays on the canvas
+      const POSES8 = [['sit', 'sit'], ['sit', 'blink'], ['sit', 'squint'], ['yawn', 'yawn'], ['groom', 'a'], ['groom', 'b'], ['belly', 'a'], ['sleep', 'a'], ['sleep', 'b'],
+        ['walk', 'a'], ['walk', 'b'], ['walk', 'c'], ['walk', 'd'], ['crouch', 'a'], ['crouch', 'b'], ['pounce', 'a'], ['stretch', 'tall'], ['stretch', 'yawn'], ['scratch', 'a'], ['scratch', 'b']];
+      const everything = Object.fromEntries(S8.ACC_IDS.map((id) => [id, { on: true }]));
+      let outside = 0;
+      let drawn = 0;
+      for (const [p, f] of POSES8) for (const facing of [1, -1]) for (const s of [null, ...S8.SEASONAL_IDS]) {
+        const sc = S8.renderScene({ pose: p, frame: f, facing, look: {}, accessories: everything, seasonal: s, catName: 'Gargorl' });
+        outside += sc.accClipped;
+        drawn += S8.accessoryCells(p, f, facing, null, { accessories: everything, seasonal: s, catName: 'G' }).cells.length;
+      }
+      record('Stage 8: every accessory + outfit in every pose stays inside the canvas', outside === 0 && drawn > 1000, `outside=${outside} cells=${drawn}`);
+      const crownCells = (o) => S8.accessoryCells('sit', 'sit', 1, null, { accessories: { crown: { on: true } }, ...o }).cells.filter(([, , c]) => c === S8.ACCESSORIES.crown.colors.a).length;
+      record('Stage 8: the party hat and the box hide head items', crownCells({}) > 5 && crownCells({ hat: true }) === 0 && crownCells({ spot: 'box' }) === 0);
+      // Customize: the Accessories tab turns the bow on + recolours it, for this cat only
+      clearReports();
+      openCustomize();
+      const cr8 = await waitFor((r) => r.type === 'customize:ready', 8000);
+      const cj8 = (code) => customizeWin.webContents.executeJavaScript(code);
+      if (cr8) {
+        await cj8(`document.getElementById('tab-accessories').click()`);
+        const rows = await cj8(`document.querySelectorAll('#acc-list li').length`);
+        await cj8(`(() => { const cb = document.querySelector('#acc-list li[data-acc="bow"] .acc-on input'); cb.checked = true; cb.dispatchEvent(new Event('change')); })()`);
+        await waitFor((r) => r.type === 'customize:saved', 3000);
+        clearReports();
+        await cj8(`(() => { const h = document.querySelector('#acc-list li[data-acc="bow"] input[type=text][data-key="a"]'); h.value = '#00aaff'; h.dispatchEvent(new Event('input')); })()`);
+        await waitFor((r) => r.type === 'customize:saved', 3000);
+        await sleep(300);
+        const fainuAcc = (settings.cats.find((c) => c.id === 'fainu') || {}).accessories || {};
+        record('Stage 8: Customize → Accessories: 8 items; the bow goes on + recolours, for this cat only', rows === 8 && settings.accessories.bow && settings.accessories.bow.on === true
+          && settings.accessories.bow.colors.a === '#00aaff' && !(fainuAcc.bow && fainuAcc.bow.on) && currentLook().accessories.bow.on === true, JSON.stringify(settings.accessories));
+        customizeWin.close();
+        await sleep(300);
+      } else record('Stage 8: Customize → Accessories', false, 'customize did not open');
+      // garbage in settings is cleaned
+      const cleaned = S8.cleanAccessories({ bow: { on: true, colors: { a: 'red' } }, cape: { on: true }, crown: 'yes' });
+      record('Stage 8: bad accessory data is cleaned (unknown items + bad colours dropped)', JSON.stringify(cleaned) === JSON.stringify({ bow: { on: true, colors: {} } }), JSON.stringify(cleaned));
+      // seasonal: off, preview from the menu, on
+      applySettings({ seasonalOutfits: false });
+      const off = currentLook().seasonal;
+      SEASON_PREVIEW_MS = 600;
+      const sm = buildContextMenu().items.find((i) => i.label === 'Seasonal outfits');
+      sm.submenu.items.find((i) => i.label === 'Preview: Witch hat').click();
+      const during = currentLook().seasonal;
+      await sleep(900);
+      const after = currentLook().seasonal;
+      SEASON_PREVIEW_MS = 10000;
+      applySettings({ seasonalOutfits: true, accessories: {} });
+      record('Stage 8: seasonal outfits: off in settings, a menu preview shows one for a moment', off === null && during === 'witch' && after === null && !!sm && sm.submenu.items.length === 6, `${off} ${during} ${after}`);
     }
 
     // 1. Real (synthetic OS-level) click on the cat -> +1 cup, meow
@@ -5705,7 +5810,9 @@ async function runSelftest() {
       })()`);
       record('info card: badge, readable wrapped description, pixel portrait at an integer scale', look.badge === 'In loving memory of' && look.ink > 300 && look.w === look.cw && look.w % 3 === 0
         && look.font >= 14 && look.wrap === 'pre-wrap', JSON.stringify(look));
-      record('info window: frameless, always on top, not in the taskbar, never takes focus', iw.isAlwaysOnTop() && !iw.isFocused() && BrowserWindow.getFocusedWindow() !== iw && iw.isVisible());
+      const fw = BrowserWindow.getFocusedWindow();
+      record('info window: frameless, always on top, not in the taskbar, never takes focus', iw.isAlwaysOnTop() && !iw.isFocused() && fw !== iw && iw.isVisible(),
+        `top=${iw.isAlwaysOnTop()} focused=${iw.isFocused()} focusedWin=${fw ? fw.getTitle() : 'none'} visible=${iw.isVisible()}`);
       record('info window sits next to the cat, inside the screen', !!ib && (ib.x >= cb.x + cb.width || ib.x + ib.width <= cb.x) && ib.x >= area.x && ib.x + ib.width <= area.x + area.width
         && ib.y >= area.y && ib.y + ib.height <= area.y + area.height, `${JSON.stringify(ib)} cat ${JSON.stringify(cb)}`);
       try { fs.writeFileSync(path.join(LOG_DIR, 'selftest-info-gargorl.png'), (await iw.webContents.capturePage()).toPNG()); } catch (_) { /* ignore */ }
