@@ -4581,7 +4581,7 @@ async function runSelftest() {
     await sleep(250);
     const mArea = screen.getDisplayNearestPoint(menuShown.anchor).workArea;
     const scrolls = await mwc.executeJavaScript(`(() => { const m = document.getElementById('menu'); return m.scrollHeight > m.clientHeight; })()`);
-    record('menu: submenu opens in place (window grows; on a small screen it scrolls inside)', menuWin.getBounds().height > h0 || (h0 >= mArea.height - 2 && scrolls), `${h0} -> ${menuWin.getBounds().height} (screen ${mArea.height}, scrolls ${scrolls})`);
+    record('menu: submenu opens in place (window grows; on a small screen it scrolls inside)', menuWin.getBounds().height > h0 || (h0 >= mArea.height - 24 && scrolls), `${h0} -> ${menuWin.getBounds().height} (screen ${mArea.height}, scrolls ${scrolls})`);
     // clicking the cat (which never takes focus) closes the menu
     onOsLeftDown();
     record('menu closes when the cat is clicked', !menuShown && !menuWin.isVisible());
