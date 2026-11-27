@@ -240,6 +240,7 @@ private fun reminderLine(ctx: android.content.Context, s: State, now: Long): Str
 }
 
 private fun syncLine(s: State, now: Long): String = when {
+    s.offHome && s.syncError.isEmpty() -> "🏠 Away from your home Wi-Fi: everything is saved on this phone and syncs when you're home"
     s.syncError.isNotEmpty() -> "⚠ ${s.syncError}"
     s.lastSync == 0L -> "Not synced yet"
     now - s.lastSync < 90_000 -> "✓ Synced with ${s.desktopName} just now"
@@ -450,6 +451,17 @@ private fun SettingsScreen(s: State) {
     }
 }
 
+@Composable
+private fun LocationPermissionButton(onResult: () -> Unit) {
+    val ctx = LocalContext.current
+    var asked by remember { mutableIntStateOf(0) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { asked++; onResult() }
+    if (asked >= 0) Button({
+        if (asked >= 2) ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
+        else launcher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+    }) { Text(if (asked >= 2) "Open app settings" else "Allow (to read the Wi-Fi name)") }
+}
+
 // --- Sync -------------------------------------------------------------------
 @Composable
 private fun SyncScreen(s: State, now: Long) {
@@ -461,14 +473,18 @@ private fun SyncScreen(s: State, now: Long) {
     var address by rememberSaveable { mutableStateOf(if (s.host.isNotEmpty()) "${s.host}:${s.port}" else "") }
     var code by rememberSaveable { mutableStateOf("") }
     var confirmUnpair by remember { mutableStateOf(false) }
+    var permTick by remember { mutableIntStateOf(0) } // re-reads the Wi-Fi name after a permission answer
 
     Page {
         Text("Sync with your computer", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         if (s.paired) {
             SectionCard("🖥 ${s.desktopName}") {
                 Text(syncLine(s, now))
-                Text("Cups, goal, reminders, quiet hours and alarms sync over Wi-Fi: right away when the app is open, and every 15 minutes or so in the background.",
+                Text("🏠 Home Wi-Fi: ${s.homeSsid}", fontWeight = FontWeight.SemiBold)
+                Text("Cups, goal, reminders, quiet hours and alarms sync only on this Wi-Fi: right away when the app is open, and every 15 minutes or so in the background. " +
+                    "On any other network nothing is sent; changes wait on the phone. To change the home Wi-Fi, unpair and pair again there.",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (s.syncError.isNotEmpty() && !HomeWifi.hasPermission(ctx)) LocationPermissionButton { permTick++ }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button({
                         busy = true
@@ -485,7 +501,16 @@ private fun SyncScreen(s: State, now: Long) {
             }
         } else {
             SectionCard("1. On your computer") {
-                Text("Open WaterCat Settings → 📱 Phone sync and turn on \"Sync with my phone over Wi-Fi\". Keep the phone on the same Wi-Fi.")
+                Text("At home, open WaterCat Settings → 📱 Phone sync and turn on \"Sync with my phone over Wi-Fi\". Connect the phone to the same home Wi-Fi.")
+            }
+            SectionCard("🏠 Home Wi-Fi only") {
+                val ssid = if (permTick >= 0) HomeWifi.currentSsid(ctx) else null
+                Text("The Wi-Fi you pair on becomes your home Wi-Fi: WaterCat only syncs there and sends nothing on other networks.")
+                if (ssid != null) Text("You're on: $ssid", fontWeight = FontWeight.SemiBold)
+                else {
+                    Text(HomeWifi.whyNoSsid(ctx), color = MaterialTheme.colorScheme.primary)
+                    if (!HomeWifi.hasPermission(ctx)) LocationPermissionButton { permTick++ }
+                }
             }
             SectionCard("2. Find it") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

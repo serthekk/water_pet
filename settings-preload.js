@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('settingsApi', {
   syncInfo: () => ipcRenderer.invoke('settings:sync-info'),
   syncNewCode: () => ipcRenderer.invoke('settings:sync-new-code'),
   syncForget: (id) => ipcRenderer.invoke('settings:sync-forget', id),
+  syncUseThisNetwork: () => ipcRenderer.invoke('settings:sync-home'),
   onSyncChanged: (cb) => ipcRenderer.on('settings:sync-changed', (_e, info) => cb(info)),
   restart: () => ipcRenderer.invoke('settings:restart'),
   openCustomize: () => ipcRenderer.invoke('settings:open-customize'),

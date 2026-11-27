@@ -37,8 +37,9 @@ across updates and even when you uninstall.
 
 WaterCat has an Android companion: water reminders as notifications ("💧 I drank!" logs a
 cup from the notification), real alarm-clock alarms (full screen, ring until stopped) and
-**Wi-Fi sync** of cups, goal, reminders, quiet hours and alarms with this app. Turn it on in
-**Settings → 📱 Phone sync** and pair the phone with the code shown there. See
+**Wi-Fi sync** of cups, goal, reminders, quiet hours and alarms with this app, on your home
+network only. Turn it on at home in **Settings → 📱 Phone sync** and pair the phone with the
+code shown there. See
 [android/README.md](android/README.md).
 
 ## Controls

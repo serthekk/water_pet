@@ -3812,6 +3812,7 @@ function registerIpc() {
   });
   ipcMain.handle('settings:sync-info', () => phoneSyncInfo());
   ipcMain.handle('settings:sync-new-code', () => (phoneSync ? phoneSync.newCode() : null) && phoneSyncInfo());
+  ipcMain.handle('settings:sync-home', async () => (phoneSync ? (await phoneSync.useCurrentNetworkAsHome()) && phoneSyncInfo() : null));
   ipcMain.handle('settings:sync-forget', (_e, id) => (phoneSync ? phoneSync.forget(String(id)) : null) && phoneSyncInfo());
   ipcMain.handle('settings:test-alarm', (_e, id) => testAlarm(String(id)));
   ipcMain.handle('settings:open-customize', () => { openCustomize(); return true; });

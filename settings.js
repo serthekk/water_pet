@@ -452,8 +452,13 @@
     $('phoneSync').checked = !!info.enabled;
     $('sync-details').hidden = !info.enabled;
     if (!info.enabled) return;
+    const onOther = info.networkChecked && !info.atHome;
     $('sync-status').textContent = !info.available ? 'Sync is not available in this mode.'
-      : info.error ? `⚠ ${info.error}` : info.running ? '✅ Waiting for your phone on this Wi-Fi.' : 'Starting…';
+      : info.error ? `⚠ ${info.error}`
+        : onOther ? (info.networks ? `⏸ Paused: this isn't your home network (${info.networks.join(', ') || 'no network'}). Your phone keeps its cups until you're both home.` : "⏸ Paused: couldn't check which network this is.")
+          : info.running ? '✅ Waiting for your phone on this Wi-Fi.' : 'Starting…';
+    $('sync-home').textContent = info.homeNetwork || (info.networkChecked ? 'Any (network names not available)' : '…');
+    $('sync-use-this').hidden = !(onOther && info.networks && info.networks.length);
     $('sync-code').textContent = info.code ? `${info.code.slice(0, 3)} ${info.code.slice(3)}` : '—';
     $('sync-addr').textContent = (info.addresses || []).length ? info.addresses.map((a) => `${a}:${info.port}`).join(', ') : 'Not connected to a network';
     const box = $('sync-devices');
@@ -477,6 +482,10 @@
     setTimeout(async () => fillSync(await api.syncInfo()), 300);
   });
   $('sync-new-code').addEventListener('click', async () => fillSync(await api.syncNewCode()));
+  $('sync-use-this').addEventListener('click', async () => {
+    if (!window.confirm('Make the network this computer is on now your home network? Phones will only sync on it from now on.')) return;
+    fillSync(await api.syncUseThisNetwork());
+  });
   api.onSyncChanged((info) => fillSync(info));
   api.syncInfo().then(fillSync);
   setInterval(async () => { if (!$('sync-details').hidden) fillSync(await api.syncInfo()); }, 30000);

@@ -91,7 +91,10 @@ data class State(
     val deviceId: String = "",
     val host: String = "",
     val port: Int = 47823,
-    val token: String = "",
+    val key: String = "", // derived from the pairing token (SyncProtocol.deriveKey); the token itself is never kept
+    val desktopId: String = "", // the computer's random id: finds it again after its address / port changed
+    val homeSsid: String = "", // sync only happens on this Wi-Fi
+    val offHome: Boolean = false, // the last sync attempt found another network (changes wait on the phone)
     val desktopName: String = "",
     val lastSync: Long = 0,
     val syncError: String = "",
@@ -99,7 +102,7 @@ data class State(
     val catName: String = "WaterCat",
     val drinkWord: String = "cups",
 ) {
-    val paired get() = token.isNotEmpty()
+    val paired get() = key.isNotEmpty()
 
     fun total(date: String): Int = max(0, (base[date] ?: 0) + (mine[date] ?: 0) - (baseMine[date] ?: 0))
     fun goalOn(date: String, today: String): Int = if (date == today) goalCups else goals[date] ?: goalCups
@@ -128,7 +131,7 @@ data class State(
         put("remindOnPhone", remindOnPhone); put("ringAlarms", ringAlarms)
         put("mine", mapJson(mine)); put("base", mapJson(base)); put("baseMine", mapJson(baseMine)); put("goals", mapJson(goals))
         put("nextReminderAt", nextReminderAt); put("nagging", nagging); put("scheduledAlarmIds", JSONArray(scheduledAlarmIds.toList()))
-        put("deviceId", deviceId); put("host", host); put("port", port); put("token", token); put("desktopName", desktopName)
+        put("deviceId", deviceId); put("host", host); put("port", port); put("key", key); put("desktopId", desktopId); put("homeSsid", homeSsid); put("offHome", offHome); put("desktopName", desktopName)
         put("lastSync", lastSync); put("syncError", syncError); put("desktopStreak", desktopStreak)
         put("catName", catName); put("drinkWord", drinkWord)
     }
@@ -157,7 +160,10 @@ data class State(
                 deviceId = o.optString("deviceId", ""),
                 host = o.optString("host", ""),
                 port = o.optInt("port", 47823),
-                token = o.optString("token", ""),
+                key = o.optString("key", ""), // (a pairing from the first version had a "token": pair again)
+                desktopId = o.optString("desktopId", ""),
+                homeSsid = o.optString("homeSsid", ""),
+                offHome = o.optBoolean("offHome", false),
                 desktopName = o.optString("desktopName", ""),
                 lastSync = o.optLong("lastSync", 0),
                 syncError = o.optString("syncError", ""),
@@ -176,6 +182,20 @@ data class State(
 /** The sync protocol (desktop sync.js), kept free of Android classes so it can be unit tested. */
 object SyncProtocol {
     const val CUP_DAYS = 120
+
+    // --- signing (desktop sync.js: deriveKey / hmac / sha256) ---
+    fun sha256(b: ByteArray): String = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
+    fun deriveKey(token: String) = sha256("watercat-key:$token".toByteArray())
+    fun hmac(key: String, msg: String): String {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(key.toByteArray(), "HmacSHA256"))
+        return mac.doFinal(msg.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+    fun newChallenge(): String = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+    fun serverProofOk(key: String, c: String, nonce: String, proof: String) = constantEq(hmac(key, "srv:$c:$nonce"), proof)
+    fun signature(key: String, nonce: String, body: ByteArray) = hmac(key, "cli:$nonce:${sha256(body)}")
+    fun answerProofOk(key: String, nonce: String, answer: ByteArray, proof: String?) = proof != null && constantEq(hmac(key, "resp:$nonce:${sha256(answer)}"), proof)
+    private fun constantEq(a: String, b: String) = java.security.MessageDigest.isEqual(a.toByteArray(), b.toByteArray())
 
     fun request(s: State, now: Long, deviceName: String): JSONObject {
         val settings = JSONObject()
@@ -236,6 +256,7 @@ object SyncProtocol {
             drinkWord = r.optString("drinkWord", s.drinkWord).ifBlank { s.drinkWord },
             lastSync = now,
             syncError = "",
+            offHome = false,
         )
     }
 

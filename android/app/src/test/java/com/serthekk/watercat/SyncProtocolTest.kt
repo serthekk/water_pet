@@ -92,8 +92,23 @@ class SyncProtocolTest {
     }
 
     @Test fun stateSurvivesJson() {
-        val s = State(goalCups = 9, alarms = listOf(Alarm("a", "07:00", "x")), mine = mapOf(today to 2), stamps = mapOf("goalCups" to 5L), token = "t", scheduledAlarmIds = setOf("a"))
+        val s = State(goalCups = 9, alarms = listOf(Alarm("a", "07:00", "x")), mine = mapOf(today to 2), stamps = mapOf("goalCups" to 5L), key = "k", desktopId = "d1", homeSsid = "Home", scheduledAlarmIds = setOf("a"))
         assertEquals(s, State.fromJson(JSONObject(s.toJson().toString())))
+    }
+
+    @Test fun signingMatchesTheDesktop() {
+        // the same values as node: require('./sync.js').deriveKey('abc') etc.
+        val key = SyncProtocol.deriveKey("abc")
+        assertEquals("87d0171a7ed71e1b1b56964aa5828f7eb3427a7f95f19ec89509b37d0afeeda8", key)
+        assertTrue(SyncProtocol.serverProofOk(key, "00ff", "1234", "9e3e6f66084e9fdda7959e70397df4b2eeaaedab63a3c24f99b4579856e94260"))
+        assertFalse(SyncProtocol.serverProofOk(key, "00ff", "1235", "9e3e6f66084e9fdda7959e70397df4b2eeaaedab63a3c24f99b4579856e94260"))
+        assertEquals("44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a", SyncProtocol.sha256("{}".toByteArray()))
+        assertFalse(SyncProtocol.answerProofOk(key, "n", "{}".toByteArray(), null))
+    }
+
+    @Test fun anOldPairingMustPairAgain() {
+        val old = JSONObject().put("token", "x".repeat(64)).put("host", "192.168.1.2")
+        assertFalse(State.fromJson(old).paired)
     }
 
     @Test fun addressParsing() {
