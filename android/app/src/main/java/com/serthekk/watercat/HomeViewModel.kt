@@ -22,6 +22,7 @@ data class HomeUi(
     val goals: List<GoalRow> = emptyList(),
     val wallet: GameRules.Wallet = GameRules.Wallet(0, 0, 0),
     val streak: GameRules.Streak = GameRules.Streak(0, 0, false, false, 0),
+    val adoptedOn: String = "",
 ) {
     val goalsLeft get() = goals.count { !it.done }
     /** Today's sips toward her next exploring trip (step 5). */
@@ -37,8 +38,8 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val today = flow { while (true) { emit(dayKey(System.currentTimeMillis())); delay(60_000) } }.distinctUntilChanged()
 
     val ui: StateFlow<HomeUi> = today.flatMapLatest { d ->
-        combine(repo.goals, repo.completions(d), repo.ledger, repo.streak(d)) { goals, done, ledger, streak ->
-            HomeUi(d, goals.map { GoalRow(it, it.id in done) }, GameRules.wallet(ledger, d), streak)
+        combine(repo.goals, repo.completions(d), repo.ledger, repo.streak(d), repo.adoptedOn) { goals, done, ledger, streak, adopted ->
+            HomeUi(d, goals.map { GoalRow(it, it.id in done) }, GameRules.wallet(ledger, d), streak, adopted ?: d)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUi())
 

@@ -120,6 +120,9 @@ networks: async () => null })`, hooks as in `tools/sync-test.js`), then run
 | `GameRules.kt` | The game's rules as plain functions: sips, treats, the care streak (unit tested) |
 | `GameDb.kt` | Room: goals, completions, the rewards ledger, inventory (schema in `app/schemas`) |
 | `GameRepo.kt` | The game on top of the database; keeps water rewards in step with the cups |
+| `HomeScreen.kt` | Today: her scene + speech bubble, energy bar, the big glass, goal cards, streak card, reminders |
+| `ProfileScreen.kt` | The Cat tab: profile card (age, friendship, stats, friend code, About / Personality) |
+| `PetStats.kt` | Profile numbers + her lines, as plain functions (unit tested) |
 | `HomeViewModel.kt` | The home screen's state (goals, wallet, streak) and actions |
 | `CatProfile.kt` | The cat (the desktop's active cat profile, synced both ways as one field) |
 | `PixelCat.kt` | The animated cat on screen: idle life, reactions, hops, hearts, sleeping |

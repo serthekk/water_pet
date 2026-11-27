@@ -41,6 +41,7 @@ class GameRepo private constructor(ctx: Context) {
     fun completions(date: String): Flow<Set<Long>> = db.completions().observeFor(date).map { l -> l.map { it.goalId }.toSet() }
     val ledger: Flow<List<Reward>> = db.ledger().observeAll().map { l -> l.map { it.toReward() } }
     val inventory: Flow<List<InventoryEntity>> = db.inventory().observe()
+    val adoptedOn: Flow<String?> = db.meta().observe(ADOPTED)
 
     fun streak(today: String): Flow<GameRules.Streak> =
         combine(db.ledger().observeActiveDays(), db.meta().observe(BEST)) { days, best ->

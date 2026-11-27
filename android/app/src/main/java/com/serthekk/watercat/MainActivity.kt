@@ -122,7 +122,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab(val icon: String, val label: String) { Today("💧", "Today"), Alarms("⏰", "Alarms"), Settings("⚙️", "Settings"), Sync("📶", "Sync") }
+private enum class Tab(val icon: String, val label: String) { Today("💧", "Today"), Cat("🐱", "Cat"), Alarms("⏰", "Alarms"), Settings("⚙️", "Settings"), Sync("📶", "Sync") }
 
 @Composable
 internal fun App(startTab: Int = 0) {
@@ -145,6 +145,7 @@ internal fun App(startTab: Int = 0) {
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
                 Tab.Today -> TodayScreen(s, now)
+                Tab.Cat -> ProfileScreen(s, now)
                 Tab.Alarms -> AlarmsScreen(s)
                 Tab.Settings -> SettingsScreen(s)
                 Tab.Sync -> SyncScreen(s, now)
@@ -155,7 +156,7 @@ internal fun App(startTab: Int = 0) {
 
 // --- shared bits ------------------------------------------------------------
 @Composable
-private fun SectionCard(title: String? = null, content: @Composable () -> Unit) {
+internal fun SectionCard(title: String? = null, content: @Composable () -> Unit) {
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -166,173 +167,24 @@ private fun SectionCard(title: String? = null, content: @Composable () -> Unit) 
 }
 
 @Composable
-private fun Page(content: @Composable () -> Unit) {
+internal fun Page(content: @Composable () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) { content() }
 }
 
-private fun timeText(ctx: android.content.Context, ms: Long): String = DateFormat.getTimeFormat(ctx).format(Date(ms))
+internal fun timeText(ctx: android.content.Context, ms: Long): String = DateFormat.getTimeFormat(ctx).format(Date(ms))
 
-private fun formatHHMM(ctx: android.content.Context, t: String): String {
+internal fun formatHHMM(ctx: android.content.Context, t: String): String {
     val c = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, toMinutes(t) / 60); set(Calendar.MINUTE, toMinutes(t) % 60) }
     return DateFormat.getTimeFormat(ctx).format(c.time)
 }
 
-private fun pickTime(ctx: android.content.Context, initial: String, onPicked: (String) -> Unit) {
+internal fun pickTime(ctx: android.content.Context, initial: String, onPicked: (String) -> Unit) {
     TimePickerDialog(ctx, { _, h, m -> onPicked(hhmm(h, m)) }, toMinutes(initial) / 60, toMinutes(initial) % 60, DateFormat.is24HourFormat(ctx)).show()
 }
 
 // --- Today ------------------------------------------------------------------
 @Composable
-private fun TodayScreen(s: State, now: Long) {
-    val ctx = LocalContext.current
-    val today = dayKey(now)
-    val cups = s.total(today)
-    val goal = s.goalCups
-    val cat = remember { CatState() }
-    val view = LocalView.current
-    val sound = SoundManager.get(ctx)
-    var partyOn by remember { mutableStateOf(false) }
-    LaunchedEffect(partyOn) { if (partyOn) { delay(20_500); partyOn = false } }
-    // every reward: sound + a light haptic + she hops (sound from the event, never from composition)
-    fun drank() {
-        val party = Actions.addCup(ctx)
-        sound.cupLogged()
-        sound.haptic(view)
-        cat.play("happy"); cat.hop(); cat.hearts(3)
-        if (party) { sound.startParty(); partyOn = true }
-    }
-    Page {
-        PermissionBanner()
-        if (partyOn) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), shape = MaterialTheme.shapes.large) {
-            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("🎉 Goal reached! Party time!", Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                TextButton({ sound.stopParty(); partyOn = false }) { Text("Stop the party") }
-            }
-        }
-        SectionCard {
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                val sprites = SpriteData.get(ctx)
-                val me = s.cat(sprites)
-                val nowCal = remember(now) { Calendar.getInstance().apply { timeInMillis = now } }
-                val sleeping = isQuietAt(nowCal.get(Calendar.HOUR_OF_DAY) * 60 + nowCal.get(Calendar.MINUTE), s.quietStart, s.quietEnd)
-                PixelCat(
-                    cat, me.look(),
-                    accessories = me.worn(), spot = me.spotFor(today), spotColors = me.spotColors(),
-                    mood = catMood(cups, goal, s.quietStart, s.quietEnd, nowCal),
-                    seasonal = sprites.seasonalFor(nowCal.get(Calendar.YEAR), nowCal.get(Calendar.MONTH), nowCal.get(Calendar.DAY_OF_MONTH)),
-                    hat = s.partyShownDate == today, // the party hat stays on for the day, like the desktop
-                    sleeping = sleeping, catName = me.name,
-                    modifier = Modifier.fillMaxWidth(0.85f).aspectRatio(30f / 27f)
-                        // tap = a drink (like clicking her on the desktop), hold = nose boop, stroke = pet
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { drank() }, onLongPress = { sound.squeak(); sound.haptic(view); cat.play("boop"); cat.hop(); cat.hearts(2) })
-                        }
-                        .pointerInput(Unit) {
-                            var travel = 0f
-                            detectDragGestures(onDragStart = { travel = 0f }) { change, d ->
-                                change.consume()
-                                travel += d.getDistance()
-                                if (travel > 140.dp.toPx()) { travel = 0f; sound.purr(3.2f); sound.haptic(view); cat.play("belly"); cat.hearts(5) }
-                            }
-                        },
-                )
-                Image(ImageBitmap.imageResource(R.drawable.bowl), contentDescription = null, modifier = Modifier.size(60.dp, 35.dp), filterQuality = FilterQuality.None)
-                Spacer(Modifier.height(8.dp))
-                Text("$cups / $goal ${s.drinkWord}", fontSize = 34.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    when {
-                        cups >= goal -> "Goal reached! ${s.cat(SpriteData.get(ctx)).name} is so proud 🎉"
-                        cups == 0 -> "Tap ${s.cat(SpriteData.get(ctx)).name} when you drink · stroke to pet · hold to boop"
-                        else -> "${goal - cups} more to go"
-                    },
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(10.dp))
-                LinearProgressIndicator(progress = { (cups.toFloat() / goal).coerceIn(0f, 1f) }, Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)))
-                Spacer(Modifier.height(14.dp))
-                Button({ drank() }, Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(16.dp)) {
-                    Text("💧  I drank a cup", fontSize = 20.sp)
-                }
-                TextButton({
-                    if (!Actions.undoCup(ctx)) Toast.makeText(ctx, "Nothing to undo on this phone", Toast.LENGTH_SHORT).show()
-                }) { Text("Undo last cup") }
-            }
-        }
-        GoalsCard(s)
-        SectionCard("🔥 Streak") {
-            val st = s.streak(now)
-            Text(if (st > 0) "$st day${if (st == 1) "" else "s"} in a row" else "Reach your goal to start a streak", fontSize = 18.sp)
-            WeekChart(s, now)
-        }
-        SectionCard("🔔 Reminders") {
-            Text(reminderLine(ctx, s, now))
-            if (s.remindersPaused(now)) {
-                FilledTonalButton({ Actions.pauseReminders(ctx, 0) }) { Text("Resume reminders") }
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton({ Actions.pauseReminders(ctx, now + 3_600_000L) }) { Text("Pause 1 h") }
-                    OutlinedButton({
-                        val c = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, 1); set(Calendar.HOUR_OF_DAY, toMinutes(s.quietEnd) / 60); set(Calendar.MINUTE, toMinutes(s.quietEnd) % 60); set(Calendar.SECOND, 0) }
-                        Actions.pauseReminders(ctx, c.timeInMillis)
-                    }) { Text("Until tomorrow") }
-                }
-            }
-            val next = s.alarms.filter { it.enabled }.minByOrNull { Scheduler.nextAlarmTime(it, now) }
-            if (next != null && s.ringAlarms) Text("⏰ Next alarm: ${formatHHMM(ctx, next.time)} · ${next.text}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        if (s.paired) Text(syncLine(s, now), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontSize = 13.sp)
-    }
-}
-
-// --- Goals (step 3: data + a simple card; step 4 makes it the home screen) ---------
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-@Composable
-private fun GoalsCard(s: State, vm: HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
-    val ctx = LocalContext.current
-    val view = LocalView.current
-    val sound = SoundManager.get(ctx)
-    val ui by vm.ui.collectAsState()
-    var editing by remember { mutableStateOf<GoalEntity?>(null) }
-    var adding by remember { mutableStateOf(false) }
-    val name = s.cat(SpriteData.get(ctx)).name
-    SectionCard(if (ui.goalsLeft == 0 && ui.goals.isNotEmpty()) "All done for today! 🎉" else "${ui.goalsLeft} goal${if (ui.goalsLeft == 1) "" else "s"} left for today!") {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AssistChip({}, label = { Text("💧 ${ui.wallet.sipsToday} sips today") })
-            AssistChip({}, label = { Text("🐟 ${ui.wallet.treats} treats") })
-        }
-        Text(GameRules.streakLine(ui.streak, name), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        ui.goals.forEach { row ->
-            val g = row.goal
-            Card(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { editing = g }), shape = MaterialTheme.shapes.large,
-                colors = CardDefaults.cardColors(containerColor = if (row.done) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(g.icon, fontSize = 26.sp)
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(g.title, fontWeight = FontWeight.Bold)
-                        if (g.kind == "water") Text("${s.total(ui.today)} / ${s.goalCups} ${s.drinkWord} · done when you reach your goal", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Text("${g.sips} 💧", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.width(10.dp))
-                    FilledTonalButton(
-                        { vm.toggle(g) { sound.chirp(sound.quietNow()); sound.haptic(view) } },
-                        enabled = g.kind != "water", shape = MaterialTheme.shapes.medium, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(48.dp),
-                    ) { Text(if (row.done) "✓" else "", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
-                }
-            }
-        }
-        TextButton({ adding = true }) { Text("＋ Add a goal") }
-        Text("Hold a goal to edit, move or remove it.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-    if (adding) GoalDialog(null, onDismiss = { adding = false }, onSave = { t, i, n -> vm.addGoal(t, i, n); adding = false })
-    editing?.let { g ->
-        GoalDialog(g, onDismiss = { editing = null }, onSave = { t, i, n -> vm.editGoal(g, t, i, n); editing = null },
-            onRemove = { vm.removeGoal(g); editing = null }, onMove = { by -> vm.move(g, by) })
-    }
-}
-
-@Composable
-private fun GoalDialog(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (String, String, Int) -> Unit, onRemove: () -> Unit = {}, onMove: (Int) -> Unit = {}) {
+internal fun GoalDialog(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (String, String, Int) -> Unit, onRemove: () -> Unit = {}, onMove: (Int) -> Unit = {}) {
     var title by remember { mutableStateOf(goal?.title ?: "") }
     var icon by remember { mutableStateOf(goal?.icon ?: "⭐") }
     var sips by remember { mutableIntStateOf(goal?.sips ?: GameRules.DEFAULT_GOAL_SIPS) }
@@ -364,7 +216,7 @@ private fun GoalDialog(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (String
     )
 }
 
-private fun reminderLine(ctx: android.content.Context, s: State, now: Long): String {
+internal fun reminderLine(ctx: android.content.Context, s: State, now: Long): String {
     if (!s.remindOnPhone) return "Reminders are off on this phone (Settings)."
     if (s.remindersPaused(now)) return "⏸ Paused until ${timeText(ctx, s.remindersPausedUntil)}" + if (dayKey(s.remindersPausedUntil) != dayKey(now)) " tomorrow" else ""
     val c = Calendar.getInstance().apply { timeInMillis = now }
@@ -375,7 +227,7 @@ private fun reminderLine(ctx: android.content.Context, s: State, now: Long): Str
     return "Next reminder at ${timeText(ctx, at)} (in ${if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"})"
 }
 
-private fun syncLine(s: State, now: Long): String = when {
+internal fun syncLine(s: State, now: Long): String = when {
     s.offHome && s.syncError.isEmpty() -> "🏠 Away from your home Wi-Fi: everything is saved on this phone and syncs when you're home"
     s.syncError.isNotEmpty() -> "⚠ ${s.syncError}"
     s.lastSync == 0L -> "Not synced yet"
@@ -384,7 +236,7 @@ private fun syncLine(s: State, now: Long): String = when {
 }
 
 @Composable
-private fun WeekChart(s: State, now: Long) {
+internal fun WeekChart(s: State, now: Long) {
     val today = dayKey(now)
     val days = (6 downTo 0).map { addDays(now, -it) }
     val max = maxOf(days.maxOf { s.total(dayKey(it)) }, s.goalCups, 1)
@@ -405,7 +257,7 @@ private fun WeekChart(s: State, now: Long) {
 }
 
 @Composable
-private fun PermissionBanner() {
+internal fun PermissionBanner() {
     val ctx = LocalContext.current
     var refresh by remember { mutableIntStateOf(0) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { refresh++ }
@@ -511,7 +363,7 @@ private fun AlarmDialog(a: Alarm, isNew: Boolean, onDismiss: () -> Unit, onSave:
 
 // --- Settings ---------------------------------------------------------------
 @Composable
-private fun Stepper(label: String, value: Int, unit: String, range: IntRange, step: Int = 1, onChange: (Int) -> Unit) {
+internal fun Stepper(label: String, value: Int, unit: String, range: IntRange, step: Int = 1, onChange: (Int) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
         OutlinedButton({ onChange((value - step).coerceIn(range)) }, enabled = value > range.first, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(40.dp)) { Text("−") }
@@ -521,7 +373,7 @@ private fun Stepper(label: String, value: Int, unit: String, range: IntRange, st
 }
 
 @Composable
-private fun ToggleRow(label: String, hint: String?, value: Boolean, onChange: (Boolean) -> Unit) {
+internal fun ToggleRow(label: String, hint: String?, value: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(label, fontWeight = FontWeight.SemiBold)
@@ -676,16 +528,22 @@ private fun CatEditor(s: State) {
     }
 }
 
-/** A still picture of a look (sitting, from the sprite renderer). */
+/** A still picture of a look (sitting, from the sprite renderer), cropped to her and what she wears. */
 @Composable
-fun CatThumb(look: Look, modifier: Modifier = Modifier) {
+fun CatThumb(look: Look, modifier: Modifier = Modifier, accessories: Map<String, Worn> = emptyMap(), seasonal: String? = null) {
     val data = SpriteData.get(LocalContext.current)
-    val scene = remember(look) { data.renderScene(SceneOptions(look = look)) }
+    val scene = remember(look, accessories, seasonal) { data.renderScene(SceneOptions(look = look, accessories = accessories, seasonal = seasonal)) }
     Canvas(modifier) {
-        val box = scene.catBox ?: return@Canvas
-        val cell = kotlin.math.floor(kotlin.math.min(size.width / box.w, size.height / box.h)).coerceAtLeast(1f)
-        val ox = (size.width - box.w * cell) / 2 - box.x * cell
-        val oy = (size.height - box.h * cell) / 2 - box.y * cell
+        var minX = data.cols; var minY = data.rows; var maxX = -1; var maxY = -1
+        for (y in 0 until data.rows) for (x in 0 until data.cols) if (scene.under[y][x] != null) {
+            minX = kotlin.math.min(minX, x); maxX = kotlin.math.max(maxX, x); minY = kotlin.math.min(minY, y); maxY = kotlin.math.max(maxY, y)
+        }
+        if (maxX < 0) return@Canvas
+        val bw = maxX - minX + 1
+        val bh = maxY - minY + 1
+        val cell = kotlin.math.floor(kotlin.math.min(size.width / bw, size.height / bh)).coerceAtLeast(1f)
+        val ox = (size.width - bw * cell) / 2 - minX * cell
+        val oy = (size.height - bh * cell) / 2 - minY * cell
         for (y in 0 until data.rows) for (x in 0 until data.cols) scene.under[y][x]?.let {
             drawRect(Color(it), androidx.compose.ui.geometry.Offset(ox + x * cell, oy + y * cell), androidx.compose.ui.geometry.Size(cell, cell))
         }
