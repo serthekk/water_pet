@@ -17,6 +17,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.FilterChip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Canvas
@@ -207,15 +210,16 @@ private fun TodayScreen(s: State, now: Long) {
         SectionCard {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 val sprites = SpriteData.get(ctx)
-                val look = (sprites.presets[s.catPreset] ?: sprites.presets.getValue("gargorl")).look
+                val me = s.cat(sprites)
                 val nowCal = remember(now) { Calendar.getInstance().apply { timeInMillis = now } }
                 val sleeping = isQuietAt(nowCal.get(Calendar.HOUR_OF_DAY) * 60 + nowCal.get(Calendar.MINUTE), s.quietStart, s.quietEnd)
                 PixelCat(
-                    cat, look,
+                    cat, me.look(),
+                    accessories = me.worn(), spot = me.spotFor(today), spotColors = me.spotColors(),
                     mood = catMood(cups, goal, s.quietStart, s.quietEnd, nowCal),
                     seasonal = sprites.seasonalFor(nowCal.get(Calendar.YEAR), nowCal.get(Calendar.MONTH), nowCal.get(Calendar.DAY_OF_MONTH)),
                     hat = s.partyShownDate == today, // the party hat stays on for the day, like the desktop
-                    sleeping = sleeping, catName = s.catName,
+                    sleeping = sleeping, catName = me.name,
                     modifier = Modifier.fillMaxWidth(0.85f).aspectRatio(30f / 27f)
                         // tap = a drink (like clicking her on the desktop), hold = nose boop, stroke = pet
                         .pointerInput(Unit) {
@@ -235,8 +239,8 @@ private fun TodayScreen(s: State, now: Long) {
                 Text("$cups / $goal ${s.drinkWord}", fontSize = 34.sp, fontWeight = FontWeight.Bold)
                 Text(
                     when {
-                        cups >= goal -> "Goal reached! ${s.catName} is so proud 🎉"
-                        cups == 0 -> "Tap ${s.catName} when you drink · stroke to pet · hold to boop"
+                        cups >= goal -> "Goal reached! ${s.cat(SpriteData.get(ctx)).name} is so proud 🎉"
+                        cups == 0 -> "Tap ${s.cat(SpriteData.get(ctx)).name} when you drink · stroke to pet · hold to boop"
                         else -> "${goal - cups} more to go"
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
@@ -282,7 +286,7 @@ private fun reminderLine(ctx: android.content.Context, s: State, now: Long): Str
     if (s.remindersPaused(now)) return "⏸ Paused until ${timeText(ctx, s.remindersPausedUntil)}" + if (dayKey(s.remindersPausedUntil) != dayKey(now)) " tomorrow" else ""
     val c = Calendar.getInstance().apply { timeInMillis = now }
     if (isQuietAt(c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE), s.quietStart, s.quietEnd)) return "🌙 Quiet hours until ${formatHHMM(ctx, s.quietEnd)}"
-    if (s.nagging) return "${s.catName} is waiting for you to drink 🥺"
+    if (s.nagging) return "${s.cat(SpriteData.get(ctx)).name} is waiting for you to drink 🥺"
     val at = Scheduler.adjustReminderTime(s, maxOf(s.nextReminderAt, now))
     val mins = ((at - now) / 60_000).coerceAtLeast(0)
     return "Next reminder at ${timeText(ctx, at)} (in ${if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"})"
@@ -360,7 +364,7 @@ private fun AlarmsScreen(s: State) {
                 if (!s.ringAlarms) Text("⚠ Alarms are turned off on this phone (Settings).", color = MaterialTheme.colorScheme.primary)
             }
             if (s.alarms.isEmpty()) item {
-                SectionCard { Text("No alarms yet. Add one for medicine, a stretch, or anything else ${s.catName} should remind you of.") }
+                SectionCard { Text("No alarms yet. Add one for medicine, a stretch, or anything else ${s.cat(SpriteData.get(ctx)).name} should remind you of.") }
             }
             items(s.alarms, key = { it.id }) { a ->
                 Card(Modifier.fillMaxWidth().clickable { editing = a; isNew = false }, shape = MaterialTheme.shapes.large,
@@ -533,19 +537,59 @@ private fun LookCard(s: State) {
                 }
             }
         }
+    }
+    CatEditor(s)
+}
+
+/** Her name, pronouns, description, coat, items and sleeping spot. Syncs with the desktop's active cat. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CatEditor(s: State) {
+    val ctx = LocalContext.current
+    val sprites = SpriteData.get(ctx)
+    val me = s.cat(sprites)
+    var name by remember(me.id) { mutableStateOf(me.name) }
+    var desc by remember(me.id) { mutableStateOf(me.description) }
+    LaunchedEffect(me.name) { if (me.name != name.trim()) name = me.name } // changed by a sync
+    SectionCard("🐱 ${me.name}") {
+        Text(if (s.paired) "This is ${me.name} on ${s.desktopName}: changes here show on the computer after the next sync, and the other way round." else "Pair with your computer (Sync tab) to have the same cat on both.",
+            fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedTextField(name, { v -> name = v.take(40); if (v.isNotBlank()) editCat(ctx) { it.withName(v) } }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Text("Pronouns", fontWeight = FontWeight.SemiBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("female" to "She/Her", "male" to "He/Him", "unspecified" to "They/Them").forEach { (g, label) ->
+                FilterChip(me.gender == g, { editCat(ctx) { it.withGender(g) } }, label = { Text(label) })
+            }
+        }
+        OutlinedTextField(desc, { v -> desc = v.take(200); editCat(ctx) { it.withDescription(desc) } }, label = { Text("About ${me.name}") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
         Text("Coat", fontWeight = FontWeight.SemiBold)
-        Text("Until the cat syncs with your computer (next step), pick her look here.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            sprites.presets.values.filter { !it.unlock }.forEach { p ->
-                val sel = p.id == s.catPreset
+            sprites.presets.values.filter { !it.unlock || it.id == me.preset }.forEach { p ->
+                val sel = p.id == me.preset
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(76.dp).clip(MaterialTheme.shapes.medium)
                     .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                    .clickable { Store.get(ctx).update { it.copy(catPreset = p.id) } }.padding(4.dp)) {
+                    .clickable { editCat(ctx) { it.withPreset(p) } }.padding(4.dp)) {
                     CatThumb(p.look, Modifier.size(64.dp, 58.dp))
                     Text(p.label, fontSize = 11.sp, textAlign = TextAlign.Center, maxLines = 2, lineHeight = 13.sp)
                 }
             }
         }
+        if (me.preset == "custom") Text("Her own colours from the computer (pick a coat to replace them).", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Wearing", fontWeight = FontWeight.SemiBold)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            sprites.accessories.values.filter { !it.unlock || me.isWearing(it.id) }.forEach { item ->
+                val on = me.isWearing(item.id)
+                FilterChip(on, { editCat(ctx) { it.wearing(item.id, !on) } }, label = { Text(item.label) })
+            }
+        }
+        Text("Sleeps in", fontWeight = FontWeight.SemiBold)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("random" to "Random", "bed" to "Cat bed", "tree" to "Cat tree", "box" to "Box", "none" to "The floor").forEach { (id, label) ->
+                FilterChip(me.sleepSpot == id, { editCat(ctx) { it.withSleepSpot(id) } }, label = { Text(label) })
+            }
+        }
+        ToggleRow("Tail", null, me.tail) { v -> editCat(ctx) { it.withTail(v) } }
+        ToggleRow("Whiskers", null, me.whiskers) { v -> editCat(ctx) { it.withWhiskers(v) } }
     }
 }
 

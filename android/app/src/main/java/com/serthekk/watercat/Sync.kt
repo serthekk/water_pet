@@ -137,8 +137,9 @@ object SyncClient {
             val token = r.json.optString("token")
             if (token.length < 32 || r.json.optInt("protocol") < 2) throw SyncException("Update WaterCat on the computer first")
             store.update {
+                // a new pairing: the computer's cat comes to the phone (not the other way round)
                 it.copy(host = host, port = port, key = SyncProtocol.deriveKey(token), desktopId = r.json.optString("id"), homeSsid = ssid,
-                    desktopName = r.json.optString("name", host), syncError = "", offHome = false)
+                    desktopName = r.json.optString("name", host), syncError = "", offHome = false, stamps = it.stamps - "cat")
             }
             schedulePeriodicSafe(ctx)
             sync(ctx).getOrThrow()

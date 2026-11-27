@@ -65,6 +65,12 @@ class DesktopE2ETest {
         val p3 = m2.copy(mine = mapOf(today to 2))
         val m3 = SyncProtocol.apply(p3, p3, signedSync(port, p3, now).second, now)
         assertEquals(4, m3.total(today))
+        // the cat: renamed on the phone (newer) -> the desktop has it, and answers with it
+        val sprites = SpriteData(JSONObject(java.io.File("src/main/assets/catsprite.json").readText()))
+        val p4 = m3.copy(catJson = m3.cat(sprites).withName("Mochi").json.toString(), stamps = m3.stamps + ("cat" to System.currentTimeMillis() - 500))
+        val m4 = SyncProtocol.apply(p4, p4, signedSync(port, p4, now).second, now)
+        assertEquals("Mochi", m4.cat(sprites).name)
+
         // a phone with a wrong key: the computer's proof fails, so it would send nothing
         val wrong = p3.copy(key = SyncProtocol.deriveKey("not-the-token"))
         val c = SyncProtocol.newChallenge()

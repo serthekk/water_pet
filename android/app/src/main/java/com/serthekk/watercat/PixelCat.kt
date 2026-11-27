@@ -110,6 +110,7 @@ fun PixelCat(
     hat: Boolean = false,
     sleeping: Boolean = false,
     spot: String = "bed",
+    spotColors: Map<String, Int> = emptyMap(),
     catName: String = "",
 ) {
     val data = SpriteData.get(LocalContext.current)
@@ -168,7 +169,7 @@ fun PixelCat(
     val options = SceneOptions(
         pose = state.pose, frame = state.frame,
         look = look.copy(lookDx = state.lookDx, mood = if (moodNow == "sad") "sad" else ""),
-        placeDy = placeDy, spot = spotCat, overlay = spotCat == "tree" || spotCat == "box",
+        placeDy = placeDy, spot = spotCat, spotColors = spotColors, overlay = spotCat == "tree" || spotCat == "box",
         accessories = accessories, seasonal = seasonal, hat = hat, catName = catName,
     )
     val scene = remember(options) { data.renderScene(options) }

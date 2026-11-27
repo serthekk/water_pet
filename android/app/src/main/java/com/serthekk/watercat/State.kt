@@ -58,7 +58,7 @@ fun isQuietAt(minuteOfDay: Int, start: String, end: String): Boolean {
 }
 
 /** The fields that sync with the desktop app (newest change wins, per field). Keep in step with sync.js SYNC_FIELDS. */
-val SYNC_FIELDS = listOf("goalCups", "reminderMinutes", "repeatMinutes", "quietStart", "quietEnd", "alarms", "remindersPausedUntil")
+val SYNC_FIELDS = listOf("goalCups", "reminderMinutes", "repeatMinutes", "quietStart", "quietEnd", "alarms", "remindersPausedUntil", "cat")
 
 /**
  * Everything the app keeps (one JSON blob in SharedPreferences).
@@ -88,7 +88,7 @@ data class State(
     val nagging: Boolean = false, // a reminder is showing and repeats until a cup is logged
     val scheduledAlarmIds: Set<String> = emptySet(),
     val partyShownDate: String = "", // the goal party plays once a day
-    val catPreset: String = "gargorl", // her look on this phone (until the cat syncs with the desktop)
+    val catJson: String = "", // the cat (CatProfile JSON, synced as "cat"); "" = Gargorl until the first sync / edit
     // pairing
     val deviceId: String = "",
     val host: String = "",
@@ -132,7 +132,7 @@ data class State(
         put("remindersPausedUntil", remindersPausedUntil); put("stamps", mapJson(stamps))
         put("remindOnPhone", remindOnPhone); put("ringAlarms", ringAlarms)
         put("mine", mapJson(mine)); put("base", mapJson(base)); put("baseMine", mapJson(baseMine)); put("goals", mapJson(goals))
-        put("nextReminderAt", nextReminderAt); put("nagging", nagging); put("scheduledAlarmIds", JSONArray(scheduledAlarmIds.toList())); put("partyShownDate", partyShownDate); put("catPreset", catPreset)
+        put("nextReminderAt", nextReminderAt); put("nagging", nagging); put("scheduledAlarmIds", JSONArray(scheduledAlarmIds.toList())); put("partyShownDate", partyShownDate); put("catJson", catJson)
         put("deviceId", deviceId); put("host", host); put("port", port); put("key", key); put("desktopId", desktopId); put("homeSsid", homeSsid); put("offHome", offHome); put("desktopName", desktopName)
         put("lastSync", lastSync); put("syncError", syncError); put("desktopStreak", desktopStreak)
         put("catName", catName); put("drinkWord", drinkWord)
@@ -160,7 +160,7 @@ data class State(
                 nagging = o.optBoolean("nagging", false),
                 scheduledAlarmIds = o.optJSONArray("scheduledAlarmIds")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet(),
                 partyShownDate = o.optString("partyShownDate", ""),
-                catPreset = o.optString("catPreset", "gargorl"),
+                catJson = o.optString("catJson", ""),
                 deviceId = o.optString("deviceId", ""),
                 host = o.optString("host", ""),
                 port = o.optInt("port", 47823),
@@ -211,6 +211,7 @@ object SyncProtocol {
                 "quietStart" -> s.quietStart
                 "quietEnd" -> s.quietEnd
                 "alarms" -> Alarm.listToJson(s.alarms)
+                "cat" -> if (s.catJson.isEmpty()) JSONObject.NULL else JSONObject(s.catJson)
                 else -> s.remindersPausedUntil
             }
             settings.put(k, JSONObject().put("v", v).put("t", s.stamps[k] ?: 0L))
@@ -241,6 +242,7 @@ object SyncProtocol {
                 "quietStart" -> e.optString("v").takeIf { TIME.matches(it) }?.let { s.copy(quietStart = it) } ?: s
                 "quietEnd" -> e.optString("v").takeIf { TIME.matches(it) }?.let { s.copy(quietEnd = it) } ?: s
                 "alarms" -> Alarm.listFromJson(e.optJSONArray("v"))?.let { s.copy(alarms = it) } ?: s
+                "cat" -> e.optJSONObject("v")?.takeIf { it.optString("name").isNotBlank() }?.let { s.copy(catJson = it.toString()) } ?: s
                 else -> s.copy(remindersPausedUntil = e.optLong("v", 0).coerceAtLeast(0))
             }
             stamps[k] = t

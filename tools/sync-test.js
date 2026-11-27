@@ -15,7 +15,8 @@ const today = () => { const d = new Date(clock); const p = (n) => String(n).padS
 
 // fake main.js
 const desk = {
-  settings: { goalCups: 8, reminderMinutes: 60, repeatMinutes: 5, quietStart: '23:00', quietEnd: '08:00', alarms: [{ id: 'pill', time: '22:00', text: 'Pill', enabled: true }], remindersPausedUntil: 0 },
+  settings: { goalCups: 8, reminderMinutes: 60, repeatMinutes: 5, quietStart: '23:00', quietEnd: '08:00', alarms: [{ id: 'pill', time: '22:00', text: 'Pill', enabled: true }], remindersPausedUntil: 0,
+    cat: { id: 'gargorl', name: 'Gargorl', gender: 'female', preset: 'gargorl', colors: { furBase: '#6d7584' }, accessories: {}, lookLocked: true } },
   cups: {},
 };
 let sync = null;
@@ -123,6 +124,18 @@ ok('pause time converted to desktop clock and back', desk.settings.remindersPaus
 ok('stamps answered in the phone clock', r.body.settings.repeatMinutes.t === clock - skew - 100);
 r = S(H, A, token, { now: clock, settings: { alarms: { v: [{ id: 'a1', time: '07:00', text: 'Wake', enabled: true }], t: clock + 3600 * 1000 } } });
 ok('a stamp far in the future is ignored', desk.settings.alarms[0].id === 'pill');
+
+// the cat (one object): a newer phone edit wins, an older one gets the desktop's cat back
+{
+  clock += 2000;
+  const fromPhone = { ...desk.settings.cat, name: 'Gargorl Jr', preset: 'orangetabby', colors: { furBase: '#e8913a' }, lookLocked: false };
+  let rc = S(H, A, token, { now: clock, settings: { cat: { v: fromPhone, t: clock - 100 } } });
+  ok('a newer cat from the phone reaches the desktop', desk.settings.cat.name === 'Gargorl Jr' && desk.settings.cat.preset === 'orangetabby' && rc.body.settings.cat.v.name === 'Gargorl Jr');
+  clock += 2000;
+  hooks.applySettings({ cat: { ...desk.settings.cat, name: 'Fainu' } }); // switched / edited on the desktop later
+  rc = S(H, A, token, { now: clock, settings: { cat: { v: fromPhone, t: clock - 3000 } } });
+  ok('an older phone cat loses: the phone gets the desktop cat', desk.settings.cat.name === 'Fainu' && rc.body.settings.cat.v.name === 'Fainu' && rc.body.settings.cat.t > clock - 3000);
+}
 
 // persistence + forgetting
 const s2 = mk();

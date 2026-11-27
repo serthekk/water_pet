@@ -13,7 +13,8 @@ reminder + alarm app:
 - **Today screen**: tap the cat (or the big button) to log a cup, progress to your goal,
   streak, the last 7 days, the next reminder and alarm.
 - **Wi-Fi sync** with the desktop app, **on your home Wi-Fi only**: cups, goal, reminder
-  interval, repeat, quiet hours, alarms and the pause. Cups logged on both sides add up (even
+  interval, repeat, quiet hours, alarms, the pause, and **the cat** (the desktop's active cat:
+  name, pronouns, description, coat, items, sleeping spot), both ways. Cups logged on both sides add up (even
   when they were apart); for settings the newest change wins. A cup on either side restarts
   the reminder on both. Away from home everything is saved on the phone and syncs once you're
   back.
@@ -93,6 +94,7 @@ networks: async () => null })`, hooks as in `tools/sync-test.js`), then run
 | `Sync.kt` | Wi-Fi discovery, pairing, sync client, WorkManager background sync |
 | `MainActivity.kt` | The UI (Today, Alarms, Settings, Sync) in Jetpack Compose |
 | `CatSprite.kt` | The desktop's pixel-cat renderer, ported (data in `assets/catsprite.json`) |
+| `CatProfile.kt` | The cat (the desktop's active cat profile, synced both ways as one field) |
 | `PixelCat.kt` | The animated cat on screen: idle life, reactions, hops, hearts, sleeping |
 | `SoundManager.kt` | All in-app sound (SoundPool + MediaPlayer), sound settings |
 | `Theme.kt` | The desktop's colour themes as Material 3, Nunito, rounded shapes |

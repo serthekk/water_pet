@@ -78,9 +78,9 @@ internal fun AlarmScreen(text: String, onDone: () -> Unit, onSnooze: () -> Unit)
             val ctx = androidx.compose.ui.platform.LocalContext.current
             val cat = androidx.compose.runtime.remember { CatState() }
             val sprites = SpriteData.get(ctx)
-            val look = (sprites.presets[Store.get(ctx).now.catPreset] ?: sprites.presets.getValue("gargorl")).look
+            val me = Store.get(ctx).now.cat(sprites)
             androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { cat.play("boop"); cat.hop(); kotlinx.coroutines.delay(2500) } } // she wants your attention
-            PixelCat(cat, look, Modifier.size(240.dp, 216.dp))
+            PixelCat(cat, me.look(), Modifier.size(240.dp, 216.dp), accessories = me.worn(), catName = me.name)
             Spacer(Modifier.height(24.dp))
             Text(text, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(48.dp))

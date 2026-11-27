@@ -29,7 +29,8 @@
 //   - cups: every phone reports ITS OWN cups per day (it is the only one who changes
 //     them), the desktop adds the difference since the last sync to its count and
 //     answers with the totals per day. So cups logged on both sides offline add up.
-//   - settings in SYNC_FIELDS (goal, reminder interval, quiet hours, alarms, pause):
+//   - settings in SYNC_FIELDS (goal, reminder interval, quiet hours, alarms, pause, and the
+//     active cat as one object: name, pronouns, description, look, items, sleeping spot):
 //     the newest change wins, per field. Phone times are corrected for clock skew.
 //
 // Everything is kept in <userData>/sync.json. This module has no Electron dependency so
@@ -47,7 +48,8 @@ const HTTP_PORT = 47823;
 const PORT_TRIES = 10; // 47823..47832
 const DISCOVERY_PORT = 47824;
 const DISCOVER_MSG = 'WATERCAT_DISCOVER 1';
-const SYNC_FIELDS = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'quietStart', 'quietEnd', 'alarms', 'remindersPausedUntil'];
+// 'cat' = the active cat's profile as one object (main.js phoneCat / applyPhoneCat)
+const SYNC_FIELDS = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'quietStart', 'quietEnd', 'alarms', 'remindersPausedUntil', 'cat'];
 const MAX_BODY = 64 * 1024;
 const MAX_DEVICES = 10;
 const CUP_DAYS = 120; // how far back a phone's per-day cups are kept / accepted

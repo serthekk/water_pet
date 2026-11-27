@@ -796,6 +796,7 @@ function setActiveCat(id, source = 'menu') {
   settings.activeCatId = id;
   saveSettings();
   log(`ACTIVE CAT -> ${id} "${settings.catName}" (${source})`);
+  if (phoneSync) phoneSync.noteLocalChange(['cat']); // the phone shows the active cat
   if (before.catSize !== settings.catSize) applyWinSize();
   if (win && !win.isDestroyed()) win.webContents.send('colors-changed', currentLook());
   pushState();
@@ -1157,7 +1158,8 @@ function applySettings(partial) {
   if (!changed.length) return publicSettings();
   saveSettings();
   log(`settings changed: ${changed.map((k) => `${k}=${JSON.stringify(settings[k])}`).join(', ')}`);
-  if (phoneSync) phoneSync.noteLocalChange(changed); // newest change wins when a phone syncs
+  // newest change wins when a phone syncs (any change to the active cat stamps "cat")
+  if (phoneSync) phoneSync.noteLocalChange(changed.some((k) => PHONE_CAT_KEYS.includes(k)) ? [...changed, 'cat'] : changed);
   if (changed.includes('phoneSync')) applyPhoneSync();
   if (changed.includes('reminderMinutes')) resetReminderTimer();
   if (changed.includes('repeatMinutes') && nagging) nagging.nextAt = Date.now() + settings.repeatMinutes * 60000;
@@ -2067,7 +2069,11 @@ function initPhoneSync() {
     hooks: {
       name: () => `${settings.catName} on ${require('os').hostname()}`.slice(0, 40),
       snapshot: phoneSyncSnapshot,
-      applySettings: (partial) => applySettings(partial),
+      applySettings: (partial) => {
+        const { cat, ...rest } = partial;
+        if (cat) applyPhoneCat(cat);
+        if (Object.keys(rest).length) applySettings(rest);
+      },
       applyCups: addCupsFromPhone,
     },
   });
@@ -2086,7 +2092,7 @@ const phoneSyncInfo = () => (phoneSync ? { available: true, enabled: settings.ph
 function phoneSyncSnapshot() {
   checkDayRollover();
   const out = {};
-  for (const k of require('./sync.js').SYNC_FIELDS) out[k] = settings[k];
+  for (const k of require('./sync.js').SYNC_FIELDS) out[k] = k === 'cat' ? phoneCat() : settings[k];
   const totals = {};
   const goals = {};
   const today = todayKey();
@@ -2096,6 +2102,36 @@ function phoneSyncSnapshot() {
     if (d) { totals[k] = d.cups; goals[k] = d.goal; }
   }
   return { settings: out, totals, goals, streak: streak(), best: Math.max(history.bestStreak, streak()), catName: settings.catName, drinkWord: drinkWord() };
+}
+
+// The cat on the phone = the active desktop cat (its profile minus desktop-only things like
+// her size). Edited on the phone: only the fields that really changed are applied (so an
+// automatic description stays automatic), through updateCat like the Customize window;
+// a cat that isn't the active one becomes active, so the change shows.
+const PHONE_CAT_KEYS = ['catName', 'catGender', 'catDescriptor', 'breed', 'colors', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'tail', 'whiskersEnabled',
+  'accessories', 'sleepSpot', 'sleepSpotColors', 'catLookLocked'];
+function phoneCat() {
+  const o = { id: settings.activeCatId };
+  for (const k of PHONE_CAT_KEYS) o[PROFILE_MAP[k]] = JSON.parse(JSON.stringify(settings[k]));
+  return o;
+}
+function applyPhoneCat(cat) {
+  if (!cat || typeof cat !== 'object' || Array.isArray(cat)) return;
+  syncActive();
+  const id = typeof cat.id === 'string' && settings.cats.some((c) => c.id === cat.id) ? cat.id : settings.activeCatId;
+  if (id !== settings.activeCatId) setActiveCat(id, 'phone');
+  const cur = phoneCat();
+  const partial = {};
+  for (const k of PHONE_CAT_KEYS) {
+    const key = PROFILE_MAP[k];
+    if (key in cat && JSON.stringify(cat[key]) !== JSON.stringify(cur[key])) partial[key] = cat[key];
+  }
+  // a look changed on the phone unlocks it (a locked look ignores colour changes)
+  if (['preset', 'colors', 'pattern', 'earStyle', 'fluffy', 'tufts'].some((k) => k in partial)) partial.lookLocked = false;
+  if (!Object.keys(partial).length) return;
+  log(`phone edited cat ${id}: ${Object.keys(partial).join(', ')}`);
+  updateCat(id, partial);
+  notifyCatsChanged();
 }
 
 // Cups logged on the phone. Today: like a cup logged here (reminder ends, party, streak,
