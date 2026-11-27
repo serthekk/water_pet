@@ -13,7 +13,7 @@ import android.net.Uri
 import android.os.Build
 
 object Notifications {
-    const val CH_REMINDERS = "reminders"
+    const val CH_REMINDERS = "reminders_meow"
     const val CH_ALARMS = "alarms"
     private const val ID_REMINDER = 1
 
@@ -35,7 +35,11 @@ object Notifications {
     private fun nm(ctx: Context) = ctx.getSystemService(NotificationManager::class.java)
 
     fun createChannels(ctx: Context) {
-        val meow = Uri.parse("${ContentResolver.SCHEME_ANDROID_RESOURCE}://${ctx.packageName}/${R.raw.meow}")
+        // By name, not by resource id: a channel keeps its sound URI forever, and resource ids
+        // can change between app versions (the sound would silently go missing after an update).
+        val meow = Uri.parse("${ContentResolver.SCHEME_ANDROID_RESOURCE}://${ctx.packageName}/raw/meow_original")
+        // 1.0/1.1 created "reminders" with an id-based sound URI to meow.wav (gone now): replace it
+        nm(ctx).deleteNotificationChannel("reminders")
         val reminders = NotificationChannel(CH_REMINDERS, "Water reminders", NotificationManager.IMPORTANCE_HIGH).apply {
             description = "A meow and a nudge to drink, every so often (not in quiet hours)"
             setSound(meow, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())

@@ -87,6 +87,7 @@ data class State(
     val nextReminderAt: Long = 0,
     val nagging: Boolean = false, // a reminder is showing and repeats until a cup is logged
     val scheduledAlarmIds: Set<String> = emptySet(),
+    val partyShownDate: String = "", // the goal party plays once a day
     // pairing
     val deviceId: String = "",
     val host: String = "",
@@ -130,7 +131,7 @@ data class State(
         put("remindersPausedUntil", remindersPausedUntil); put("stamps", mapJson(stamps))
         put("remindOnPhone", remindOnPhone); put("ringAlarms", ringAlarms)
         put("mine", mapJson(mine)); put("base", mapJson(base)); put("baseMine", mapJson(baseMine)); put("goals", mapJson(goals))
-        put("nextReminderAt", nextReminderAt); put("nagging", nagging); put("scheduledAlarmIds", JSONArray(scheduledAlarmIds.toList()))
+        put("nextReminderAt", nextReminderAt); put("nagging", nagging); put("scheduledAlarmIds", JSONArray(scheduledAlarmIds.toList())); put("partyShownDate", partyShownDate)
         put("deviceId", deviceId); put("host", host); put("port", port); put("key", key); put("desktopId", desktopId); put("homeSsid", homeSsid); put("offHome", offHome); put("desktopName", desktopName)
         put("lastSync", lastSync); put("syncError", syncError); put("desktopStreak", desktopStreak)
         put("catName", catName); put("drinkWord", drinkWord)
@@ -157,6 +158,7 @@ data class State(
                 nextReminderAt = o.optLong("nextReminderAt", 0),
                 nagging = o.optBoolean("nagging", false),
                 scheduledAlarmIds = o.optJSONArray("scheduledAlarmIds")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet(),
+                partyShownDate = o.optString("partyShownDate", ""),
                 deviceId = o.optString("deviceId", ""),
                 host = o.optString("host", ""),
                 port = o.optInt("port", 47823),

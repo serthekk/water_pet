@@ -45,20 +45,25 @@ class Store private constructor(ctx: Context) {
 
 /** Actions shared by the UI, the notification buttons and the sync worker. */
 object Actions {
-    fun addCup(ctx: Context, n: Int = 1) {
+    /** Logs a drink. Returns true the first time today's goal is reached (time for the party). */
+    fun addCup(ctx: Context, n: Int = 1): Boolean {
         val now = System.currentTimeMillis()
         val today = dayKey(now)
+        var party = false
         Store.get(ctx).update { s ->
-            s.copy(
+            val next = s.copy(
                 mine = s.mine + (today to (s.mine[today] ?: 0) + n),
                 goals = s.goals + (today to s.goalCups),
                 nagging = false,
                 nextReminderAt = now + s.reminderMinutes * 60_000L,
             )
+            party = next.total(today) >= next.goalCups && s.partyShownDate != today
+            if (party) next.copy(partyShownDate = today) else next
         }
         Notifications.cancelReminder(ctx)
         Scheduler.scheduleReminder(ctx)
         SyncWorker.syncSoon(ctx)
+        return party
     }
 
     /** Takes back a cup logged on this phone today (cups from the computer are undone there). */

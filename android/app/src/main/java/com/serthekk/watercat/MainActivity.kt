@@ -17,6 +17,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
+import kotlin.math.roundToInt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -172,22 +180,51 @@ private fun TodayScreen(s: State, now: Long) {
     val cups = s.total(today)
     val goal = s.goalCups
     var hop by remember { mutableIntStateOf(0) }
+    val view = LocalView.current
+    val sound = SoundManager.get(ctx)
+    var partyOn by remember { mutableStateOf(false) }
+    LaunchedEffect(partyOn) { if (partyOn) { delay(20_500); partyOn = false } }
+    // every reward: sound + a light haptic + she hops (sound from the event, never from composition)
+    fun drank() {
+        val party = Actions.addCup(ctx)
+        sound.cupLogged()
+        sound.haptic(view)
+        hop++
+        if (party) { sound.startParty(); partyOn = true }
+    }
     Page {
         PermissionBanner()
+        if (partyOn) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), shape = RoundedCornerShape(18.dp)) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("🎉 Goal reached! Party time!", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                TextButton({ sound.stopParty(); partyOn = false }) { Text("Stop the party") }
+            }
+        }
         SectionCard {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 val y = if (hop % 2 == 1) (-10).dp else 0.dp
                 LaunchedEffect(hop) { if (hop % 2 == 1) { delay(180); hop++ } }
                 Image(ImageBitmap.imageResource(R.drawable.cat), contentDescription = s.catName,
                     modifier = Modifier.padding(top = 8.dp).offset(y = y).size(180.dp, 160.dp)
-                        .clickable { Actions.addCup(ctx); hop++ }, filterQuality = FilterQuality.None)
+                        // tap = a drink (like clicking her on the desktop), hold = nose boop, stroke = pet
+                        .pointerInput(Unit) {
+                            detectTapGestures(onTap = { drank() }, onLongPress = { sound.squeak(); sound.haptic(view); hop++ })
+                        }
+                        .pointerInput(Unit) {
+                            var travel = 0f
+                            detectDragGestures(onDragStart = { travel = 0f }) { change, d ->
+                                change.consume()
+                                travel += d.getDistance()
+                                if (travel > 140.dp.toPx()) { travel = 0f; sound.purr(2f); sound.haptic(view) }
+                            }
+                        }, filterQuality = FilterQuality.None)
                 Image(ImageBitmap.imageResource(R.drawable.bowl), contentDescription = null, modifier = Modifier.size(72.dp, 42.dp), filterQuality = FilterQuality.None)
                 Spacer(Modifier.height(8.dp))
                 Text("$cups / $goal ${s.drinkWord}", fontSize = 34.sp, fontWeight = FontWeight.Bold)
                 Text(
                     when {
                         cups >= goal -> "Goal reached! ${s.catName} is so proud 🎉"
-                        cups == 0 -> "Tap ${s.catName} or the button when you drink"
+                        cups == 0 -> "Tap ${s.catName} when you drink · stroke to pet · hold to boop"
                         else -> "${goal - cups} more to go"
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
@@ -195,7 +232,7 @@ private fun TodayScreen(s: State, now: Long) {
                 Spacer(Modifier.height(10.dp))
                 LinearProgressIndicator(progress = { (cups.toFloat() / goal).coerceIn(0f, 1f) }, Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)))
                 Spacer(Modifier.height(14.dp))
-                Button({ Actions.addCup(ctx); hop++ }, Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(16.dp)) {
+                Button({ drank() }, Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(16.dp)) {
                     Text("💧  I drank a cup", fontSize = 20.sp)
                 }
                 TextButton({
@@ -415,6 +452,7 @@ private fun SettingsScreen(s: State) {
             }
             Text("No water reminders in this window (alarms still ring). Same time twice = no quiet hours.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        SoundCard()
         SectionCard("📱 This phone") {
             ToggleRow("Water reminders on this phone", "Turn off if you only want the cat on your computer to remind you.", s.remindOnPhone) { v ->
                 store.update { it.copy(remindOnPhone = v, nagging = false) }
@@ -460,6 +498,47 @@ private fun LocationPermissionButton(onResult: () -> Unit) {
         if (asked >= 2) ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
         else launcher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
     }) { Text(if (asked >= 2) "Open app settings" else "Allow (to read the Wi-Fi name)") }
+}
+
+@Composable
+private fun SoundCard() {
+    val ctx = LocalContext.current
+    val sound = SoundManager.get(ctx)
+    val ss by sound.settings.collectAsState()
+    var picking by remember { mutableStateOf(false) }
+    var vol by remember(ss.volume) { mutableFloatStateOf(ss.volume) }
+    SectionCard("🔊 Sound") {
+        ToggleRow("Sound on", "Off = no meows, purrs or chirps in the app (reminders and alarms use the phone's notification sound settings).", ss.soundOn) { sound.setSoundOn(it) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Volume", Modifier.width(72.dp), fontWeight = FontWeight.SemiBold)
+            Slider(vol, { vol = it }, Modifier.weight(1f), enabled = ss.soundOn, steps = 19,
+                onValueChangeFinished = { sound.setVolume(vol); sound.meow() }) // let her hear the new volume
+            Text("${(vol * 100).roundToInt()}%", Modifier.width(48.dp), textAlign = TextAlign.End)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Meow", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+            OutlinedButton({ picking = true }, enabled = ss.soundOn) {
+                Text(Meow.entries.firstOrNull { it.id == ss.meowStyle }?.label ?: "Random (mix it up)", maxLines = 1)
+            }
+        }
+        ToggleRow("Happy chirp when I log a drink", "Off: she meows instead.", ss.cupChirp) { sound.setCupChirp(it) }
+        ToggleRow("Vibrate a little on rewards", null, ss.haptics) { sound.setHaptics(it) }
+    }
+    if (picking) AlertDialog(
+        onDismissRequest = { picking = false },
+        title = { Text("Her meow") },
+        text = {
+            Column {
+                (listOf("random" to "Random (mix it up)") + Meow.entries.map { it.id to it.label }).forEach { (id, label) ->
+                    Row(Modifier.fillMaxWidth().clickable { sound.setMeowStyle(id); sound.meow(id) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(ss.meowStyle == id, { sound.setMeowStyle(id); sound.meow(id) })
+                        Text(label)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton({ picking = false }) { Text("Done") } },
+    )
 }
 
 // --- Sync -------------------------------------------------------------------
