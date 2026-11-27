@@ -2,6 +2,19 @@
   "_comment": "Shown in the app's \"What's new\" window and used as the GitHub release text (release.yml). Add the new version at the TOP before tagging it. Newest first. icon: one emoji; text: one short line.",
   "releases": [
     {
+      "version": "1.2.0",
+      "date": "2026-11-27",
+      "title": "Quicker phone sync",
+      "items": [
+        { "icon": "📶", "text": "When the computer starts, wakes up or quits, it tells the phone to sync right away (if the WaterCat app is open)." },
+        { "icon": "👋", "text": "Quitting WaterCat gives the phone up to 3 seconds for a last sync. The cat still goes away at once." },
+        { "icon": "🏠", "text": "The phone syncs as soon as it's back on the home Wi-Fi." },
+        { "icon": "↩️", "text": "Phone app: Back goes to the tab you were on before, instead of closing the app." },
+        { "icon": "🧹", "text": "Phone app: the \"goals for today\" list is gone from the Today screen." },
+        { "icon": "🛍️", "text": "Phone app: adventures, a shop and a bag for your cat's treats and souvenirs." }
+      ]
+    },
+    {
       "version": "1.1.0",
       "date": "2026-11-27",
       "title": "WaterCat on your phone",
