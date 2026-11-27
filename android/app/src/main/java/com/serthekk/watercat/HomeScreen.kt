@@ -96,7 +96,7 @@ class Bubble {
     internal fun clear() { text = null }
 }
 
-/** The home screen: her scene, the big glass, today's goals, the streak, reminders. */
+/** The home screen: her scene, the big glass, the streak, reminders. */
 @Composable
 internal fun TodayScreen(s: State, now: Long, vm: HomeViewModel = viewModel()) {
     val ctx = LocalContext.current
@@ -196,11 +196,7 @@ internal fun TodayScreen(s: State, now: Long, vm: HomeViewModel = viewModel()) {
             })
         }
         WaterCard(s, cups, ::drank)
-        GoalsSection(ui, s, onReward = { r, allDone ->
-            sound.chirp(sound.quietNow()); sound.haptic(view)
-            cat.play("happy"); cat.hearts(2)
-            bubble.say(if (allDone) CatLines.allDone else CatLines.goalDone.random())
-        }, vm = vm)
+        // (the "goals for today" list was taken off the home screen at her request)
         StreakCard(ui.streak, me.name) { WeekChart(s, now) }
         RemindersCard(s, now)
         if (s.paired) Text(syncLine(s, now), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontSize = 13.sp)
@@ -354,7 +350,7 @@ private fun AdventurePanel(ui: HomeUi, adv: Adventures.Status, me: CatProfile, o
             color = if (adv is Adventures.Status.Away) MaterialTheme.colorScheme.tertiary else Color(0xFF5FB4E8),
             trackColor = MaterialTheme.colorScheme.surfaceVariant, drawStopIndicator = {})
         when (adv) {
-            Adventures.Status.NotEnoughEnergy -> Text("Goals and glasses give sips. A full bar and ${me.name} goes exploring.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Adventures.Status.NotEnoughEnergy -> Text("Every glass gives sips. A full bar and ${me.name} goes exploring.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Adventures.Status.Ready -> androidx.compose.material3.Button(onSend, Modifier.fillMaxWidth().height(52.dp), shape = MaterialTheme.shapes.large) {
                 Text("🧺  Send ${me.name} exploring", fontSize = 17.sp)
             }
@@ -425,58 +421,6 @@ private fun WaterCard(s: State, cups: Int, onDrink: () -> Unit) {
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) { Text("Undo last glass") }
             }
         }
-    }
-}
-
-// --- goals ---------------------------------------------------------------------------
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun GoalsSection(ui: HomeUi, s: State, onReward: (Reward, Boolean) -> Unit, vm: HomeViewModel) {
-    var editing by remember { mutableStateOf<GoalEntity?>(null) }
-    var adding by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("📋", fontSize = 22.sp)
-        Spacer(Modifier.width(8.dp))
-        Text(if (ui.goals.isNotEmpty() && ui.goalsLeft == 0) "All done for today! 🎉" else "${ui.goalsLeft} goal${if (ui.goalsLeft == 1) "" else "s"} left for today!",
-            style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-        Text("🐟 ${ui.wallet.treats}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-    }
-    ui.goals.forEach { row ->
-        val g = row.goal
-        val pop by animateFloatAsState(if (row.done) 1f else 0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy), label = "check")
-        Card(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { editing = g }), shape = MaterialTheme.shapes.large,
-            elevation = CardDefaults.cardElevation(1.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-            Row(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) { Text(g.icon, fontSize = 24.sp) }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(g.title, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
-                    if (g.kind == "water") Text("${s.total(ui.today)} / ${s.goalCups} ${s.drinkWord} · checks itself", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text("${g.sips} 💧", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(10.dp))
-                val allDoneAfter = !row.done && ui.goals.count { !it.done } == 1
-                Box(
-                    Modifier.size(54.dp).clip(RoundedCornerShape(16.dp))
-                        .background(if (row.done) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.surfaceContainerHighest)
-                        .clickable(enabled = g.kind != "water") { vm.toggle(g) { r -> onReward(r, allDoneAfter) } },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Canvas(Modifier.size(26.dp).scale(0.6f + 0.4f * pop)) {
-                        val c = if (pop > 0.01f) Color.White.copy(alpha = pop.coerceIn(0f, 1f)) else Color.Transparent
-                        drawPath(Path().apply { moveTo(size.width * 0.12f, size.height * 0.55f); lineTo(size.width * 0.42f, size.height * 0.82f); lineTo(size.width * 0.9f, size.height * 0.2f) },
-                            c, style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
-                    }
-                }
-            }
-        }
-    }
-    OutlinedButton({ adding = true }, Modifier.fillMaxWidth().height(52.dp), shape = MaterialTheme.shapes.large) { Text("＋  Add a goal") }
-    Text("Hold a goal to edit, move or remove it.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-    if (adding) GoalDialog(null, onDismiss = { adding = false }, onSave = { t, i, n -> vm.addGoal(t, i, n); adding = false })
-    editing?.let { g ->
-        GoalDialog(g, onDismiss = { editing = null }, onSave = { t, i, n -> vm.editGoal(g, t, i, n); editing = null },
-            onRemove = { vm.removeGoal(g); editing = null }, onMove = { by -> vm.move(g, by) })
     }
 }
 

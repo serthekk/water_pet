@@ -79,7 +79,7 @@ internal fun ShopScreen(s: State, vm: HomeViewModel = viewModel()) {
                 Text("🐟 ${ui.wallet.treats}", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
             }
         }
-        Text("${stage.icon} ${me.name} is a ${stage.name.lowercase()}. Earn 🐟 with goals, good days and adventures.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("${stage.icon} ${me.name} is a ${stage.name.lowercase()}. Earn 🐟 with good days and adventures.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (items.isEmpty()) SectionCard { Text("${me.name} owns everything in the shop! 🎉 Come back for new things later.") }
         items.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

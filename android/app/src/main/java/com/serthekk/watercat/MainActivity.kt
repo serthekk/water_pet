@@ -12,6 +12,7 @@ import android.provider.Settings
 import android.text.format.DateFormat
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -130,6 +131,21 @@ internal fun App(startTab: Int = 0) {
     val s by Store.get(ctx).state.collectAsState()
     var tab by rememberSaveable { mutableStateOf(Tab.entries[startTab.coerceIn(0, Tab.entries.lastIndex)]) }
     var more by rememberSaveable { mutableIntStateOf(0) } // under More: Alarms, Settings, Sync
+    // Back goes to the tab (and More page) she was on before, like a browser; only with no
+    // history left does Back leave the app. Saved as "tab:more,tab:more" (survives rotation).
+    var history by rememberSaveable { mutableStateOf("") }
+    fun go(t: Tab, m: Int = more) {
+        if (t == tab && m == more) return
+        history = (history.split(',').filter { it.isNotEmpty() } + "${tab.ordinal}:$more").takeLast(30).joinToString(",")
+        tab = t; more = m
+    }
+    BackHandler(enabled = history.isNotEmpty() || tab != Tab.Today) {
+        val stack = history.split(',').filter { it.isNotEmpty() }
+        if (stack.isEmpty()) { tab = Tab.Today; return@BackHandler }
+        val (t, m) = stack.last().split(':').map { it.toInt() }
+        history = stack.dropLast(1).joinToString(",")
+        tab = Tab.entries[t.coerceIn(0, Tab.entries.lastIndex)]; more = m
+    }
     // ticks every 30 s so times ("in 12 min") stay fresh
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(30_000) } }
@@ -138,7 +154,7 @@ internal fun App(startTab: Int = 0) {
         bottomBar = {
             NavigationBar {
                 Tab.entries.forEach { t ->
-                    NavigationBarItem(selected = tab == t, onClick = { tab = t }, icon = { Text(t.icon, fontSize = 20.sp) }, label = { Text(t.label) })
+                    NavigationBarItem(selected = tab == t, onClick = { go(t) }, icon = { Text(t.icon, fontSize = 20.sp) }, label = { Text(t.label) })
                 }
             }
         },
@@ -152,7 +168,7 @@ internal fun App(startTab: Int = 0) {
                 Tab.More -> Column {
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("⏰ Alarms", "⚙️ Settings", "📶 Sync").forEachIndexed { i, label ->
-                            FilterChip(more == i, { more = i }, label = { Text(label) })
+                            FilterChip(more == i, { go(Tab.More, i) }, label = { Text(label) })
                         }
                     }
                     Box(Modifier.weight(1f)) {
