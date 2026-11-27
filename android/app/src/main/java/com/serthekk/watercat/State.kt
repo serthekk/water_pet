@@ -88,6 +88,7 @@ data class State(
     val nagging: Boolean = false, // a reminder is showing and repeats until a cup is logged
     val scheduledAlarmIds: Set<String> = emptySet(),
     val partyShownDate: String = "", // the goal party plays once a day
+    val adventureBackAt: Long = 0, // she is out exploring until then (0 = home); for the "she's back" notification
     val catJson: String = "", // the cat (CatProfile JSON, synced as "cat"); "" = Gargorl until the first sync / edit
     // pairing
     val deviceId: String = "",
@@ -132,7 +133,7 @@ data class State(
         put("remindersPausedUntil", remindersPausedUntil); put("stamps", mapJson(stamps))
         put("remindOnPhone", remindOnPhone); put("ringAlarms", ringAlarms)
         put("mine", mapJson(mine)); put("base", mapJson(base)); put("baseMine", mapJson(baseMine)); put("goals", mapJson(goals))
-        put("nextReminderAt", nextReminderAt); put("nagging", nagging); put("scheduledAlarmIds", JSONArray(scheduledAlarmIds.toList())); put("partyShownDate", partyShownDate); put("catJson", catJson)
+        put("nextReminderAt", nextReminderAt); put("nagging", nagging); put("scheduledAlarmIds", JSONArray(scheduledAlarmIds.toList())); put("partyShownDate", partyShownDate); put("catJson", catJson); put("adventureBackAt", adventureBackAt)
         put("deviceId", deviceId); put("host", host); put("port", port); put("key", key); put("desktopId", desktopId); put("homeSsid", homeSsid); put("offHome", offHome); put("desktopName", desktopName)
         put("lastSync", lastSync); put("syncError", syncError); put("desktopStreak", desktopStreak)
         put("catName", catName); put("drinkWord", drinkWord)
@@ -161,6 +162,7 @@ data class State(
                 scheduledAlarmIds = o.optJSONArray("scheduledAlarmIds")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet(),
                 partyShownDate = o.optString("partyShownDate", ""),
                 catJson = o.optString("catJson", ""),
+                adventureBackAt = o.optLong("adventureBackAt", 0),
                 deviceId = o.optString("deviceId", ""),
                 host = o.optString("host", ""),
                 port = o.optInt("port", 47823),

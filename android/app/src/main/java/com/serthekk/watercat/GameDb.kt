@@ -1,6 +1,7 @@
 package com.serthekk.watercat
 
 import android.content.Context
+import androidx.room.AutoMigration
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -59,6 +60,20 @@ data class LedgerEntity(
 
 @Entity(tableName = "inventory")
 data class InventoryEntity(@PrimaryKey val itemId: String, val source: String, val acquiredAt: Long = System.currentTimeMillis())
+
+/** One trip out in the garden (Adventures). The times are stored, so the countdown survives the app being closed. */
+@Entity(tableName = "adventures", indices = [Index("date")])
+data class AdventureEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val date: String,
+    val startedAt: Long,
+    val returnsAt: Long,
+    val storyId: Int,
+    val treats: Int,
+    val claimedAt: Long? = null,
+) {
+    fun trip() = Adventures.Trip(id, date, startedAt, returnsAt, storyId, treats, claimedAt != null)
+}
 
 @Entity(tableName = "meta")
 data class MetaEntity(@PrimaryKey val key: String, val value: String)
@@ -120,6 +135,9 @@ interface LedgerDao {
     @Query("SELECT COALESCE(SUM(treats), 0) FROM ledger")
     suspend fun treats(): Int
 
+    @Query("SELECT COALESCE(SUM(sips), 0) FROM ledger WHERE date = :date")
+    suspend fun sipsOn(date: String): Int
+
     /** Days with something done (a goal or a glass): the care streak. */
     @Query("SELECT DISTINCT date FROM ledger WHERE sips > 0")
     fun observeActiveDays(): Flow<List<String>>
@@ -135,6 +153,27 @@ interface InventoryDao {
 }
 
 @Dao
+interface AdventureDao {
+    @Query("SELECT * FROM adventures ORDER BY startedAt DESC LIMIT 1")
+    fun observeLatest(): Flow<AdventureEntity?>
+
+    @Query("SELECT * FROM adventures ORDER BY startedAt DESC LIMIT 1")
+    suspend fun latest(): AdventureEntity?
+
+    @Query("SELECT * FROM adventures WHERE claimedAt IS NOT NULL ORDER BY startedAt DESC")
+    fun observeClaimed(): Flow<List<AdventureEntity>>
+
+    @Query("SELECT storyId FROM adventures ORDER BY startedAt DESC LIMIT 6")
+    suspend fun recentStories(): List<Int>
+
+    @Insert
+    suspend fun insert(a: AdventureEntity): Long
+
+    @Query("UPDATE adventures SET claimedAt = :at WHERE id = :id AND claimedAt IS NULL")
+    suspend fun claim(id: Long, at: Long): Int
+}
+
+@Dao
 interface MetaDao {
     @Query("SELECT value FROM meta WHERE `key` = :key")
     suspend fun get(key: String): String?
@@ -146,7 +185,11 @@ interface MetaDao {
     suspend fun put(m: MetaEntity)
 }
 
-@Database(entities = [GoalEntity::class, CompletionEntity::class, LedgerEntity::class, InventoryEntity::class, MetaEntity::class], version = 1, exportSchema = true)
+@Database(
+    entities = [GoalEntity::class, CompletionEntity::class, LedgerEntity::class, InventoryEntity::class, MetaEntity::class, AdventureEntity::class],
+    version = 2, exportSchema = true,
+    autoMigrations = [AutoMigration(from = 1, to = 2)], // 2: adventures (a new table; everything else is kept)
+)
 abstract class GameDb : RoomDatabase() {
     abstract fun goals(): GoalDao
     abstract fun completions(): CompletionDao
@@ -154,6 +197,7 @@ abstract class GameDb : RoomDatabase() {
     abstract fun inventory(): InventoryDao
     abstract fun meta(): MetaDao
     abstract fun shop(): ShopDao
+    abstract fun adventures(): AdventureDao
 
     companion object {
         @Volatile private var instance: GameDb? = null

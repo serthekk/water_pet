@@ -51,6 +51,19 @@ internal fun ProfileScreen(s: State, now: Long, vm: HomeViewModel = viewModel())
     Page {
         ProfileCard(s, me, ui, now)
         StreakCard(ui.streak, me.name)
+        if (ui.journal.isNotEmpty()) SectionCard("📔 Adventure journal") {
+            ui.journal.take(10).forEach { t ->
+                val story = Adventures.STORIES.first { it.id == t.storyId }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(story.souvenir.icon, fontSize = 26.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(Adventures.tell(story, me.name, me.gender), fontSize = 14.sp)
+                        Text("${t.date} · ${story.souvenir.label} · +${t.treats} 🐟", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
         Text("Edit ${me.name}'s name, look and items in Settings → 🐱 ${me.name}.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
     }
@@ -82,7 +95,8 @@ private fun ProfileCard(s: State, me: CatProfile, ui: HomeUi, now: Long) {
                     Spacer(Modifier.width(16.dp))
                     Column {
                         Text(me.name, style = MaterialTheme.typography.headlineSmall)
-                        Text("${me.pronouns} · day $age together", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val n = ui.journal.size
+                        Text("${me.pronouns} · $n adventure${if (n == 1) "" else "s"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
