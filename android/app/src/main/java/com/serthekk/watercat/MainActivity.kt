@@ -17,6 +17,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material3.RadioButton
@@ -36,6 +39,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -147,7 +151,7 @@ internal fun App(startTab: Int = 0) {
 // --- shared bits ------------------------------------------------------------
 @Composable
 private fun SectionCard(title: String? = null, content: @Composable () -> Unit) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (title != null) Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -179,7 +183,7 @@ private fun TodayScreen(s: State, now: Long) {
     val today = dayKey(now)
     val cups = s.total(today)
     val goal = s.goalCups
-    var hop by remember { mutableIntStateOf(0) }
+    val cat = remember { CatState() }
     val view = LocalView.current
     val sound = SoundManager.get(ctx)
     var partyOn by remember { mutableStateOf(false) }
@@ -189,12 +193,12 @@ private fun TodayScreen(s: State, now: Long) {
         val party = Actions.addCup(ctx)
         sound.cupLogged()
         sound.haptic(view)
-        hop++
+        cat.play("happy"); cat.hop(); cat.hearts(3)
         if (party) { sound.startParty(); partyOn = true }
     }
     Page {
         PermissionBanner()
-        if (partyOn) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), shape = RoundedCornerShape(18.dp)) {
+        if (partyOn) Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer), shape = MaterialTheme.shapes.large) {
             Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("🎉 Goal reached! Party time!", Modifier.weight(1f), fontWeight = FontWeight.Bold)
                 TextButton({ sound.stopParty(); partyOn = false }) { Text("Stop the party") }
@@ -202,23 +206,31 @@ private fun TodayScreen(s: State, now: Long) {
         }
         SectionCard {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                val y = if (hop % 2 == 1) (-10).dp else 0.dp
-                LaunchedEffect(hop) { if (hop % 2 == 1) { delay(180); hop++ } }
-                Image(ImageBitmap.imageResource(R.drawable.cat), contentDescription = s.catName,
-                    modifier = Modifier.padding(top = 8.dp).offset(y = y).size(180.dp, 160.dp)
+                val sprites = SpriteData.get(ctx)
+                val look = (sprites.presets[s.catPreset] ?: sprites.presets.getValue("gargorl")).look
+                val nowCal = remember(now) { Calendar.getInstance().apply { timeInMillis = now } }
+                val sleeping = isQuietAt(nowCal.get(Calendar.HOUR_OF_DAY) * 60 + nowCal.get(Calendar.MINUTE), s.quietStart, s.quietEnd)
+                PixelCat(
+                    cat, look,
+                    mood = catMood(cups, goal, s.quietStart, s.quietEnd, nowCal),
+                    seasonal = sprites.seasonalFor(nowCal.get(Calendar.YEAR), nowCal.get(Calendar.MONTH), nowCal.get(Calendar.DAY_OF_MONTH)),
+                    hat = s.partyShownDate == today, // the party hat stays on for the day, like the desktop
+                    sleeping = sleeping, catName = s.catName,
+                    modifier = Modifier.fillMaxWidth(0.85f).aspectRatio(30f / 27f)
                         // tap = a drink (like clicking her on the desktop), hold = nose boop, stroke = pet
                         .pointerInput(Unit) {
-                            detectTapGestures(onTap = { drank() }, onLongPress = { sound.squeak(); sound.haptic(view); hop++ })
+                            detectTapGestures(onTap = { drank() }, onLongPress = { sound.squeak(); sound.haptic(view); cat.play("boop"); cat.hop(); cat.hearts(2) })
                         }
                         .pointerInput(Unit) {
                             var travel = 0f
                             detectDragGestures(onDragStart = { travel = 0f }) { change, d ->
                                 change.consume()
                                 travel += d.getDistance()
-                                if (travel > 140.dp.toPx()) { travel = 0f; sound.purr(2f); sound.haptic(view) }
+                                if (travel > 140.dp.toPx()) { travel = 0f; sound.purr(3.2f); sound.haptic(view); cat.play("belly"); cat.hearts(5) }
                             }
-                        }, filterQuality = FilterQuality.None)
-                Image(ImageBitmap.imageResource(R.drawable.bowl), contentDescription = null, modifier = Modifier.size(72.dp, 42.dp), filterQuality = FilterQuality.None)
+                        },
+                )
+                Image(ImageBitmap.imageResource(R.drawable.bowl), contentDescription = null, modifier = Modifier.size(60.dp, 35.dp), filterQuality = FilterQuality.None)
                 Spacer(Modifier.height(8.dp))
                 Text("$cups / $goal ${s.drinkWord}", fontSize = 34.sp, fontWeight = FontWeight.Bold)
                 Text(
@@ -351,7 +363,7 @@ private fun AlarmsScreen(s: State) {
                 SectionCard { Text("No alarms yet. Add one for medicine, a stretch, or anything else ${s.catName} should remind you of.") }
             }
             items(s.alarms, key = { it.id }) { a ->
-                Card(Modifier.fillMaxWidth().clickable { editing = a; isNew = false }, shape = RoundedCornerShape(18.dp),
+                Card(Modifier.fillMaxWidth().clickable { editing = a; isNew = false }, shape = MaterialTheme.shapes.large,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -439,6 +451,7 @@ private fun SettingsScreen(s: State) {
     Page {
         Text("Settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
         if (s.paired) Text("Goal, reminders, quiet hours and alarms sync with ${s.desktopName}.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LookCard(s)
         SectionCard("💧 Water") {
             Stepper("Daily goal", s.goalCups, s.drinkWord, 1..100) { v -> store.edit("goalCups") { it.copy(goalCups = v) }; Actions.settingsChanged(ctx, false) }
             Stepper("Remind every", s.reminderMinutes, "min", 5..1440, 5) { v -> store.edit("reminderMinutes") { it.copy(reminderMinutes = v) }; Actions.settingsChanged(ctx, true) }
@@ -498,6 +511,58 @@ private fun LocationPermissionButton(onResult: () -> Unit) {
         if (asked >= 2) ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
         else launcher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
     }) { Text(if (asked >= 2) "Open app settings" else "Allow (to read the Wi-Fi name)") }
+}
+
+@Composable
+private fun LookCard(s: State) {
+    val ctx = LocalContext.current
+    val sprites = SpriteData.get(ctx)
+    val ui = UiPrefs.get(ctx)
+    val themeId by ui.theme.collectAsState()
+    SectionCard("🎨 Look") {
+        Text("Colours", fontWeight = FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            DesktopTheme.all(ctx).forEach { t ->
+                val sel = t.id == themeId
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(76.dp).clip(MaterialTheme.shapes.medium)
+                    .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { ui.setTheme(t.id) }.padding(6.dp)) {
+                    Row(Modifier.clip(RoundedCornerShape(10.dp))) {
+                        listOf("bg", "accent", "hover", "check").forEach { k -> Box(Modifier.size(15.dp, 30.dp).background(t.vars.getValue(k))) }
+                    }
+                    Text(t.label, fontSize = 11.sp, textAlign = TextAlign.Center, maxLines = 2, lineHeight = 13.sp)
+                }
+            }
+        }
+        Text("Coat", fontWeight = FontWeight.SemiBold)
+        Text("Until the cat syncs with your computer (next step), pick her look here.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            sprites.presets.values.filter { !it.unlock }.forEach { p ->
+                val sel = p.id == s.catPreset
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(76.dp).clip(MaterialTheme.shapes.medium)
+                    .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                    .clickable { Store.get(ctx).update { it.copy(catPreset = p.id) } }.padding(4.dp)) {
+                    CatThumb(p.look, Modifier.size(64.dp, 58.dp))
+                    Text(p.label, fontSize = 11.sp, textAlign = TextAlign.Center, maxLines = 2, lineHeight = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+/** A still picture of a look (sitting, from the sprite renderer). */
+@Composable
+fun CatThumb(look: Look, modifier: Modifier = Modifier) {
+    val data = SpriteData.get(LocalContext.current)
+    val scene = remember(look) { data.renderScene(SceneOptions(look = look)) }
+    Canvas(modifier) {
+        val box = scene.catBox ?: return@Canvas
+        val cell = kotlin.math.floor(kotlin.math.min(size.width / box.w, size.height / box.h)).coerceAtLeast(1f)
+        val ox = (size.width - box.w * cell) / 2 - box.x * cell
+        val oy = (size.height - box.h * cell) / 2 - box.y * cell
+        for (y in 0 until data.rows) for (x in 0 until data.cols) scene.under[y][x]?.let {
+            drawRect(Color(it), androidx.compose.ui.geometry.Offset(ox + x * cell, oy + y * cell), androidx.compose.ui.geometry.Size(cell, cell))
+        }
+    }
 }
 
 @Composable

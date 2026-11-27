@@ -99,6 +99,9 @@ function wav(samples, rate) {
   const page = await browser.newPage();
   for (const [name, [seconds, body]] of Object.entries(SOUNDS)) {
     const data = await page.evaluate(async ({ seconds, body, rate }) => {
+      // seeded noise: the same files on every run (no git churn)
+      let seed = 0x9e3779b9;
+      Math.random = () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
       const ctx = new OfflineAudioContext(1, Math.ceil(seconds * rate), rate);
       new Function('ctx', body)(ctx);
       const buf = await ctx.startRendering();

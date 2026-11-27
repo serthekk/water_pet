@@ -88,6 +88,7 @@ data class State(
     val nagging: Boolean = false, // a reminder is showing and repeats until a cup is logged
     val scheduledAlarmIds: Set<String> = emptySet(),
     val partyShownDate: String = "", // the goal party plays once a day
+    val catPreset: String = "gargorl", // her look on this phone (until the cat syncs with the desktop)
     // pairing
     val deviceId: String = "",
     val host: String = "",
@@ -131,7 +132,7 @@ data class State(
         put("remindersPausedUntil", remindersPausedUntil); put("stamps", mapJson(stamps))
         put("remindOnPhone", remindOnPhone); put("ringAlarms", ringAlarms)
         put("mine", mapJson(mine)); put("base", mapJson(base)); put("baseMine", mapJson(baseMine)); put("goals", mapJson(goals))
-        put("nextReminderAt", nextReminderAt); put("nagging", nagging); put("scheduledAlarmIds", JSONArray(scheduledAlarmIds.toList())); put("partyShownDate", partyShownDate)
+        put("nextReminderAt", nextReminderAt); put("nagging", nagging); put("scheduledAlarmIds", JSONArray(scheduledAlarmIds.toList())); put("partyShownDate", partyShownDate); put("catPreset", catPreset)
         put("deviceId", deviceId); put("host", host); put("port", port); put("key", key); put("desktopId", desktopId); put("homeSsid", homeSsid); put("offHome", offHome); put("desktopName", desktopName)
         put("lastSync", lastSync); put("syncError", syncError); put("desktopStreak", desktopStreak)
         put("catName", catName); put("drinkWord", drinkWord)
@@ -159,6 +160,7 @@ data class State(
                 nagging = o.optBoolean("nagging", false),
                 scheduledAlarmIds = o.optJSONArray("scheduledAlarmIds")?.let { a -> (0 until a.length()).map { a.optString(it) }.toSet() } ?: emptySet(),
                 partyShownDate = o.optString("partyShownDate", ""),
+                catPreset = o.optString("catPreset", "gargorl"),
                 deviceId = o.optString("deviceId", ""),
                 host = o.optString("host", ""),
                 port = o.optInt("port", 47823),

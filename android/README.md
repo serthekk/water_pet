@@ -92,3 +92,10 @@ networks: async () => null })`, hooks as in `tools/sync-test.js`), then run
 | `Receivers.kt` | Notification buttons, alarm firing, reboot / time change rescheduling |
 | `Sync.kt` | Wi-Fi discovery, pairing, sync client, WorkManager background sync |
 | `MainActivity.kt` | The UI (Today, Alarms, Settings, Sync) in Jetpack Compose |
+| `CatSprite.kt` | The desktop's pixel-cat renderer, ported (data in `assets/catsprite.json`) |
+| `PixelCat.kt` | The animated cat on screen: idle life, reactions, hops, hearts, sleeping |
+| `SoundManager.kt` | All in-app sound (SoundPool + MediaPlayer), sound settings |
+| `Theme.kt` | The desktop's colour themes as Material 3, Nunito, rounded shapes |
+
+Assets come from the desktop files: run `python3 scripts/convert_assets.py` after they change
+(needs ffmpeg and node with playwright). See `docs/asset_mapping.md`.

@@ -6,7 +6,6 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -23,9 +22,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -79,7 +75,12 @@ internal fun AlarmScreen(text: String, onDone: () -> Unit, onSnooze: () -> Unit)
         ) {
             Text(DateFormat.getTimeInstance(DateFormat.SHORT).format(Date()), fontSize = 64.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(24.dp))
-            Image(ImageBitmap.imageResource(R.drawable.cat), contentDescription = "WaterCat", modifier = Modifier.size(180.dp, 160.dp), filterQuality = FilterQuality.None)
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val cat = androidx.compose.runtime.remember { CatState() }
+            val sprites = SpriteData.get(ctx)
+            val look = (sprites.presets[Store.get(ctx).now.catPreset] ?: sprites.presets.getValue("gargorl")).look
+            androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { cat.play("boop"); cat.hop(); kotlinx.coroutines.delay(2500) } } // she wants your attention
+            PixelCat(cat, look, Modifier.size(240.dp, 216.dp))
             Spacer(Modifier.height(24.dp))
             Text(text, fontSize = 28.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(48.dp))
