@@ -2,6 +2,12 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.devtools.ksp")
+}
+
+ksp {
+    // the database schema of every version, for migrations later (app/schemas, committed)
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 android {
@@ -12,8 +18,8 @@ android {
         applicationId = "com.serthekk.watercat"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "1.5.0"
     }
 
     buildTypes {
@@ -50,6 +56,11 @@ dependencies {
     // sound settings (mute / volume / meow style) + pausing sound with the app
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
+    // goals, rewards ledger, inventory (Room) + the screens' state (ViewModel)
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }

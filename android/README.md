@@ -117,6 +117,10 @@ networks: async () => null })`, hooks as in `tools/sync-test.js`), then run
 | `Sync.kt` | Wi-Fi discovery, pairing, sync client, WorkManager background sync |
 | `MainActivity.kt` | The UI (Today, Alarms, Settings, Sync) in Jetpack Compose |
 | `CatSprite.kt` | The desktop's pixel-cat renderer, ported (data in `assets/catsprite.json`) |
+| `GameRules.kt` | The game's rules as plain functions: sips, treats, the care streak (unit tested) |
+| `GameDb.kt` | Room: goals, completions, the rewards ledger, inventory (schema in `app/schemas`) |
+| `GameRepo.kt` | The game on top of the database; keeps water rewards in step with the cups |
+| `HomeViewModel.kt` | The home screen's state (goals, wallet, streak) and actions |
 | `CatProfile.kt` | The cat (the desktop's active cat profile, synced both ways as one field) |
 | `PixelCat.kt` | The animated cat on screen: idle life, reactions, hops, hearts, sleeping |
 | `SoundManager.kt` | All in-app sound (SoundPool + MediaPlayer), sound settings |

@@ -17,6 +17,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.AssistChip
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.FilterChip
@@ -256,6 +258,7 @@ private fun TodayScreen(s: State, now: Long) {
                 }) { Text("Undo last cup") }
             }
         }
+        GoalsCard(s)
         SectionCard("🔥 Streak") {
             val st = s.streak(now)
             Text(if (st > 0) "$st day${if (st == 1) "" else "s"} in a row" else "Reach your goal to start a streak", fontSize = 18.sp)
@@ -279,6 +282,86 @@ private fun TodayScreen(s: State, now: Long) {
         }
         if (s.paired) Text(syncLine(s, now), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontSize = 13.sp)
     }
+}
+
+// --- Goals (step 3: data + a simple card; step 4 makes it the home screen) ---------
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun GoalsCard(s: State, vm: HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
+    val ctx = LocalContext.current
+    val view = LocalView.current
+    val sound = SoundManager.get(ctx)
+    val ui by vm.ui.collectAsState()
+    var editing by remember { mutableStateOf<GoalEntity?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    val name = s.cat(SpriteData.get(ctx)).name
+    SectionCard(if (ui.goalsLeft == 0 && ui.goals.isNotEmpty()) "All done for today! 🎉" else "${ui.goalsLeft} goal${if (ui.goalsLeft == 1) "" else "s"} left for today!") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AssistChip({}, label = { Text("💧 ${ui.wallet.sipsToday} sips today") })
+            AssistChip({}, label = { Text("🐟 ${ui.wallet.treats} treats") })
+        }
+        Text(GameRules.streakLine(ui.streak, name), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ui.goals.forEach { row ->
+            val g = row.goal
+            Card(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClick = { editing = g }), shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = if (row.done) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)) {
+                Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(g.icon, fontSize = 26.sp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(g.title, fontWeight = FontWeight.Bold)
+                        if (g.kind == "water") Text("${s.total(ui.today)} / ${s.goalCups} ${s.drinkWord} · done when you reach your goal", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text("${g.sips} 💧", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.width(10.dp))
+                    FilledTonalButton(
+                        { vm.toggle(g) { sound.chirp(sound.quietNow()); sound.haptic(view) } },
+                        enabled = g.kind != "water", shape = MaterialTheme.shapes.medium, contentPadding = PaddingValues(0.dp), modifier = Modifier.size(48.dp),
+                    ) { Text(if (row.done) "✓" else "", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
+                }
+            }
+        }
+        TextButton({ adding = true }) { Text("＋ Add a goal") }
+        Text("Hold a goal to edit, move or remove it.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    if (adding) GoalDialog(null, onDismiss = { adding = false }, onSave = { t, i, n -> vm.addGoal(t, i, n); adding = false })
+    editing?.let { g ->
+        GoalDialog(g, onDismiss = { editing = null }, onSave = { t, i, n -> vm.editGoal(g, t, i, n); editing = null },
+            onRemove = { vm.removeGoal(g); editing = null }, onMove = { by -> vm.move(g, by) })
+    }
+}
+
+@Composable
+private fun GoalDialog(goal: GoalEntity?, onDismiss: () -> Unit, onSave: (String, String, Int) -> Unit, onRemove: () -> Unit = {}, onMove: (Int) -> Unit = {}) {
+    var title by remember { mutableStateOf(goal?.title ?: "") }
+    var icon by remember { mutableStateOf(goal?.icon ?: "⭐") }
+    var sips by remember { mutableIntStateOf(goal?.sips ?: GameRules.DEFAULT_GOAL_SIPS) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (goal == null) "New goal" else "Edit goal") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(title, { title = it.take(60) }, label = { Text("Goal") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("⭐", "💧", "🪥", "🧘", "🌬️", "🛏️", "😊", "🚶", "🍎", "💊", "📚", "🧹", "🌞", "🎨", "🫖", "🎧").forEach { e ->
+                        FilterChip(icon == e, { icon = e }, label = { Text(e, fontSize = 18.sp) })
+                    }
+                }
+                if (goal?.kind != "water") Stepper("Sips", sips, "💧", 1..20) { sips = it }
+                if (goal != null) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton({ onMove(-1) }) { Text("Move up") }
+                    OutlinedButton({ onMove(1) }) { Text("Move down") }
+                }
+            }
+        },
+        confirmButton = { TextButton({ onSave(title, icon, sips) }, enabled = title.isNotBlank()) { Text("Save") } },
+        dismissButton = {
+            Row {
+                if (goal != null && goal.kind != "water") TextButton(onRemove) { Text("Remove") }
+                TextButton(onDismiss) { Text("Cancel") }
+            }
+        },
+    )
 }
 
 private fun reminderLine(ctx: android.content.Context, s: State, now: Long): String {
