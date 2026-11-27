@@ -14,7 +14,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The Android companion app, signed with the release key (repo secrets ANDROID_KEYSTORE_*).
+  # It must always be the SAME key: phones only install an update signed like the old app.
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Release key from the repo secrets
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then echo "::error::Secret ANDROID_KEYSTORE_BASE64 is missing (see RELEASING.md)"; exit 1; fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/watercat-release.p12"
+      - name: Unit tests + signed release APK
+        env:
+          WATERCAT_KEYSTORE: ${{ runner.temp }}/watercat-release.p12
+          WATERCAT_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          WATERCAT_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: ./gradlew --no-daemon testDebugUnitTest assembleRelease
+      - name: Check the signature + name the APK
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          apk=app/build/outputs/apk/release/app-release.apk
+          signer=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          "$signer" verify --print-certs "$apk" | tee certs.txt
+          if grep -q "CN=Android Debug" certs.txt; then echo "::error::APK is signed with the debug key"; exit 1; fi
+          grep -q "CN=WaterCat" certs.txt || { echo "::error::APK is not signed with the WaterCat key"; exit 1; }
+          mkdir -p out && cp "$apk" "out/WaterCat-Android-$v.apk"
+          rm -f "$RUNNER_TEMP/watercat-release.p12"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: android-apk
+          path: android/out/*.apk
+          if-no-files-found: error
+
   release:
+    needs: android
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -58,6 +102,11 @@ jobs:
       - name: Build (Setup + blockmap + update feed + Portable)
         run: npm run build
 
+      - uses: actions/download-artifact@v6
+        with:
+          name: android-apk
+          path: release
+
       - name: Check the build output
         id: files
         shell: pwsh
@@ -68,7 +117,7 @@ jobs:
           # electron-builder's GitHub publisher always writes latest.yml (it has no channels);
           # the app's updater asks a beta release for beta.yml first, so give it that name
           if ($feed -ne 'latest.yml' -and -not (Test-Path "release/$feed") -and (Test-Path 'release/latest.yml')) { Copy-Item 'release/latest.yml' "release/$feed" }
-          $want = @("WaterCat-Setup-$v.exe", "WaterCat-Setup-$v.exe.blockmap", $feed, "WaterCat-Portable-$v.exe")
+          $want = @("WaterCat-Setup-$v.exe", "WaterCat-Setup-$v.exe.blockmap", $feed, "WaterCat-Portable-$v.exe", "WaterCat-Android-$v.apk")
           $missing = $want | Where-Object { -not (Test-Path "release/$_") }
           if ($missing) { Write-Host "::error::The build did not produce: $($missing -join ', ')"; Get-ChildItem release -File | ForEach-Object Name; exit 1 }
           if ((Get-Content "release/$feed" -Raw) -notmatch "(?m)^version: $([regex]::Escape($v))\s*$") { Write-Host "::error::release/$feed is not for version $v"; exit 1 }
@@ -89,7 +138,7 @@ jobs:
           $notes = node -e "const r=(JSON.parse(require('fs').readFileSync('release-notes.json','utf8')).releases||[]).find((x)=>x.version===process.argv[1])||(JSON.parse(require('fs').readFileSync('release-notes.json','utf8')).releases||[]).find((x)=>x.version===process.argv[1].split('-')[0]);if(r)process.stdout.write('## '+(r.title||'')+'\n\n'+r.items.map((i)=>'- '+(i.icon?i.icon+' ':'')+i.text).join('\n')+'\n')" $tag.TrimStart('v')
           if (-not $notes) { Write-Host "::warning::release-notes.json has no entry for $tag - only GitHub's generated notes are used" }
           Set-Content -Path release-notes.md -Value ($notes -join "`n") -Encoding utf8
-          gh release create $tag $files[0] $files[1] $files[2] $files[3] --repo $env:GITHUB_REPOSITORY --title $tag --notes-file release-notes.md --generate-notes --verify-tag $kind
+          gh release create $tag @files --repo $env:GITHUB_REPOSITORY --title $tag --notes-file release-notes.md --generate-notes --verify-tag $kind
           if ($LASTEXITCODE) { exit 1 }
 
       - name: Verify the published release

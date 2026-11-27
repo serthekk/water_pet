@@ -2,6 +2,16 @@
   "_comment": "Shown in the app's \"What's new\" window and used as the GitHub release text (release.yml). Add the new version at the TOP before tagging it. Newest first. icon: one emoji; text: one short line.",
   "releases": [
     {
+      "version": "1.1.0",
+      "date": "2026-11-27",
+      "title": "WaterCat on your phone",
+      "items": [
+        { "icon": "📱", "text": "New: the WaterCat Android app (WaterCat-Android-*.apk on the GitHub release). Water reminders, alarm-clock alarms and your cat, on the phone." },
+        { "icon": "🔄", "text": "Phone sync (off until you turn it on in Settings → Phone sync): cups, goal, reminders, quiet hours, alarms and your cat sync both ways, on your home Wi-Fi only." },
+        { "icon": "🔒", "text": "Pairing takes a 6-digit code, and every sync is signed. Nothing listens when you're away from home." }
+      ]
+    },
+    {
       "version": "1.0.3",
       "date": "2026-11-27",
       "title": "Longer biscuits",

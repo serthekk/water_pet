@@ -22,14 +22,30 @@ android {
         versionName = "1.6.0"
     }
 
+    // Release key: WATERCAT_KEYSTORE (path to the .p12), WATERCAT_KEYSTORE_PASSWORD and
+    // WATERCAT_KEY_ALIAS from the environment (release.yml fills them from repo secrets).
+    // Every published APK must use this same key, or phones refuse it as an update.
+    // Without them (local builds, PR CI) the release APK falls back to the debug key.
+    val releaseKeystore = System.getenv("WATERCAT_KEYSTORE")?.takeIf { it.isNotBlank() }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storeType = "pkcs12"
+                storePassword = System.getenv("WATERCAT_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("WATERCAT_KEY_ALIAS") ?: "watercat"
+                keyPassword = System.getenv("WATERCAT_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key so `assembleRelease` gives an installable APK out of
-            // the box. Use your own keystore before publishing anywhere.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (releaseKeystore != null) signingConfigs.getByName("release")
+                            else signingConfigs.getByName("debug")
         }
     }
     compileOptions {

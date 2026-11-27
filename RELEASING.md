@@ -111,3 +111,15 @@ Releases are unsigned, so Windows SmartScreen warns on first install ("More info
 
 - Installed app: `%APPDATA%\water-cat-tracker\logs\debug.log` (lines starting `updater:`).
 - Dev: `logs\debug.log` in the project folder.
+
+## Android app (WaterCat-Android-X.apk)
+
+release.yml builds the Android companion app (`android/`) in its own job and attaches the
+signed APK to the same GitHub release (5 files in total). It is signed with the WaterCat
+release key from the repo secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD` and
+`ANDROID_KEY_ALIAS`. The job fails if they are missing or the APK ends up debug-signed.
+
+**Never change or lose that key.** Android only installs an update that is signed with the
+same key as the installed app. With a different key, people have to uninstall first, and that
+deletes their data. The owner keeps the key file + password offline (backed up). Raise
+`versionCode` in `android/app/build.gradle.kts` for every APK that changes.
