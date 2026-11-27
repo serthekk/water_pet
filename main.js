@@ -85,8 +85,25 @@ app.on('second-instance', () => {
 // The cat lives in the tray; closing/hiding windows must never quit the app.
 app.on('window-all-closed', () => log('window-all-closed (ignored)'));
 
-app.on('before-quit', () => {
+// Phone sync: before a normal quit / restart, say "bye" to the phone and give it up to 3 s
+// for a last sync (the windows disappear at once, so the quit still feels instant). Never
+// while quitting to install an update (the installer must not wait for us), never twice.
+let phoneByeDone = false;
+let quittingForUpdate = false;
+app.on('before-quit', (e) => {
   quitting = true;
+  if (phoneSync && !phoneByeDone && !quittingForUpdate && !SELFTEST) {
+    phoneByeDone = true;
+    const bye = phoneSync.goodbye(3000);
+    e.preventDefault();
+    for (const w of BrowserWindow.getAllWindows()) { try { if (!w.isDestroyed()) w.hide(); } catch (_) { /* ignore */ } }
+    log('before-quit: waiting for the phone\'s last sync');
+    bye.then((synced) => {
+      log(`before-quit: ${synced ? 'phone synced' : 'no phone sync'} - quitting`);
+      app.quit();
+    }, () => app.quit());
+    return;
+  }
   if (phoneSync) phoneSync.stop();
   log('before-quit');
 });
@@ -2102,6 +2119,25 @@ function initPhoneSync() {
     if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('settings:sync-changed', phoneSyncInfo());
   });
   applyPhoneSync();
+}
+// "Sync now" nudges around the PC's power state (sync.js): wake from sleep / unlock ->
+// "I'm here"; Windows shutting down / logging off -> "bye" (Windows gives no time to wait).
+// An update install quits without waiting for the phone (before-quit above).
+function watchPowerForPhoneSync() {
+  try { require('electron').autoUpdater.on('before-quit-for-update', () => { quittingForUpdate = true; }); } catch (_) { /* not available */ }
+  if (!phoneSync) return;
+  const wake = (why) => { if (settings.phoneSync && !quitting) { log(`phone sync: ${why}`); phoneSync.wake().catch(() => {}); } };
+  try {
+    powerMonitor.on('resume', () => wake('woke from sleep'));
+    powerMonitor.on('unlock-screen', () => wake('screen unlocked'));
+  } catch (err) { log('phone sync: powerMonitor unavailable', err); }
+  if (win && !win.isDestroyed()) {
+    win.on('session-end', () => {
+      log('session-end (Windows is shutting down / logging off)');
+      phoneByeDone = true; // never hold up a shutdown in before-quit
+      try { phoneSync.sayBye(); } catch (_) { /* ignore */ }
+    });
+  }
 }
 function applyPhoneSync() {
   if (!phoneSync) return;
@@ -7004,6 +7040,7 @@ app.whenReady().then(() => {
     initPhoneSync();
     registerIpc();
     createWindow();
+    watchPowerForPhoneSync(); // after createWindow: session-end is a window event
     createTray();
     registerHotkey();
     startTimers();

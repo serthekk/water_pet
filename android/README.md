@@ -37,8 +37,12 @@ Do this at home: the network you pair on becomes the home network on both sides.
 3. **🔍 Search Wi-Fi** (or type the address), enter the code, **Pair**.
 
 After that it syncs whenever the app is open (every minute), a few seconds after every
-change, and about every 15 minutes in the background, as long as the phone is on the home
-Wi-Fi. (Some phones don't tell apps the Wi-Fi name in the background; then it simply syncs
+change, a few seconds after the phone joins the home Wi-Fi, and about every 15 minutes in the
+background, as long as the phone is on the home Wi-Fi. When the computer starts, wakes up or
+quits, it tells the phone ("sync now", UDP 47825); an open app syncs right away, and before a
+normal quit the computer waits up to 3 seconds for that last sync. (A Windows shutdown gives
+no time to wait: the computer just says bye. Nothing is lost either way: both sides keep
+their data and catch up at the next sync.) (Some phones don't tell apps the Wi-Fi name in the background; then it simply syncs
 the next time you open the app at home.)
 
 To use another home network: on the phone, Unpair and pair again there; on the computer,

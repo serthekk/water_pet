@@ -101,8 +101,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Calendar
 import java.util.Date
 
@@ -111,12 +113,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent { WaterCatTheme { App() } }
-        // while the app is open: sync now and every minute (cups from the computer show up)
+        // while the app is open: sync now and every minute (cups from the computer show up),
+        // and right away when the computer says "I'm here" / "bye" (SyncNudges)
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+                val nudged = Channel<String>(Channel.CONFLATED)
+                launch { SyncNudges.listen(this@MainActivity) { kind -> nudged.trySend(kind) } }
                 while (true) {
                     if (Store.get(this@MainActivity).now.paired) SyncClient.sync(this@MainActivity)
-                    delay(60_000)
+                    while (true) {
+                        val kind = withTimeoutOrNull(60_000) { nudged.receive() } ?: break
+                        // "up" comes 3 times (UDP can get lost): once is enough. "bye" always syncs.
+                        if (kind == "bye" || System.currentTimeMillis() - Store.get(this@MainActivity).now.lastSync > 8_000) break
+                    }
                 }
             }
         }

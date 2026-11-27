@@ -10,5 +10,6 @@ class WaterCatApp : Application() {
         GameRepo.get(this) // starter plan on first run; keeps the water rewards in step with the cups
         Scheduler.rescheduleAll(this)
         if (Store.get(this).now.paired) SyncWorker.schedulePeriodic(this)
+        SyncNudges.watchWifi(this) // home Wi-Fi again -> sync a few seconds later
     }
 }

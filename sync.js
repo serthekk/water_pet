@@ -25,6 +25,13 @@
 // Wrong codes are rate limited. Each computer has a random id, so the phone finds it again
 // after its address or port changed.
 //
+// "Sync now" nudges (UDP broadcast to the phone, port 47825): "WATERCAT_HERE 1 <id> up" when
+// the computer starts listening (app start, back on the home network, wake from sleep) and
+// "... bye" before it quits / Windows shuts down. The phone app (while open) then syncs right
+// away instead of at its next minute. A nudge carries no data and proves nothing: the phone
+// only does its normal signed sync, so a fake one costs one extra (failing) sync at most.
+// Before a normal quit, goodbye() waits a few seconds for that last sync.
+//
 // What syncs:
 //   - cups: every phone reports ITS OWN cups per day (it is the only one who changes
 //     them), the desktop adds the difference since the last sync to its count and
@@ -48,6 +55,9 @@ const HTTP_PORT = 47823;
 const PORT_TRIES = 10; // 47823..47832
 const DISCOVERY_PORT = 47824;
 const DISCOVER_MSG = 'WATERCAT_DISCOVER 1';
+const PHONE_PORT = 47825; // the phone app listens here (UDP) for "sync now" nudges
+const NUDGE_MSG = 'WATERCAT_HERE 1'; // + " <computer id> up|bye"
+const NUDGE_RETRY_MS = [0, 3000, 10000]; // UDP can get lost: say it a few times
 // 'cat' = the active cat's profile as one object (main.js phoneCat / applyPhoneCat)
 const SYNC_FIELDS = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'quietStart', 'quietEnd', 'alarms', 'remindersPausedUntil', 'cat'];
 const MAX_BODY = 64 * 1024;
@@ -87,6 +97,21 @@ function lanAddresses() {
   return out;
 }
 
+// The broadcast address of every local IPv4 network (address | ~netmask), plus the general
+// 255.255.255.255 (Windows sends that one out of one network card only).
+function broadcastAddresses() {
+  const out = new Set(['255.255.255.255']);
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const a of list || []) {
+      if (!a || a.family !== 'IPv4' || a.internal || !a.netmask) continue;
+      const ip = a.address.split('.').map(Number);
+      const mask = a.netmask.split('.').map(Number);
+      if (ip.length === 4 && mask.length === 4) out.add(ip.map((b, i) => (b | (~mask[i] & 255)) & 255).join('.'));
+    }
+  }
+  return [...out];
+}
+
 // The networks this computer is connected to right now, by their Windows network profile
 // name (the Wi-Fi name, or "Network 2" etc. for a cable). Resolves to null if unknown.
 function windowsNetworks(timeoutMs = 8000) {
@@ -116,6 +141,9 @@ function create(deps) {
   const hooks = deps.hooks;
   const httpPort = deps.httpPort === undefined ? HTTP_PORT : deps.httpPort;
   const discoveryPort = deps.discoveryPort === undefined ? DISCOVERY_PORT : deps.discoveryPort;
+  const phonePort = deps.phonePort === undefined ? PHONE_PORT : deps.phonePort;
+  // where nudges go (tests: '127.0.0.1'); default = every local network's broadcast address
+  const nudgeTargets = deps.nudgeTargets || broadcastAddresses;
   const networks = deps.networks || windowsNetworks;
 
   let state = load();
@@ -128,6 +156,9 @@ function create(deps) {
   let enabled = false; // Phone sync is on (listens only while also at home)
   let netTimer = null;
   let net = { checked: false, current: null, atHome: false };
+  let nudgeTimers = [];
+  let udpReady = false;
+  let syncWaiters = []; // goodbye(): resolved by the next phone sync
 
   function load() {
     let raw = {};
@@ -304,6 +335,8 @@ function create(deps) {
     dev.lastSync = t;
     if (typeof body.deviceName === 'string') dev.name = cleanName(body.deviceName, dev.name);
     save();
+    // (the answer is built below, synchronously: a waiting goodbye() resolves after it went out)
+    if (syncWaiters.length) { const ws = syncWaiters; syncWaiters = []; setImmediate(() => ws.forEach((w) => w(true))); }
     if (cupChanges || applied.length) log(`sync: "${dev.name}" - ${cupChanges} cup change(s), settings from phone: ${applied.join(', ') || 'none'}`);
     changed();
 
@@ -409,19 +442,65 @@ function create(deps) {
       log(`sync: discovery socket error (${err.code || err.message}) - the phone can still connect by IP address`);
       try { udp.close(); } catch (_) { /* ignore */ }
       udp = null;
+      udpReady = false;
     });
     udp.on('message', (msg, rinfo) => {
       if (msg.length > 64 || msg.toString('utf8').trim() !== DISCOVER_MSG || !server || !server.address()) return;
       const reply = Buffer.from(JSON.stringify({ app: 'WaterCat', protocol: PROTOCOL, id: state.id, name: hooks.name(), port: server.address().port }));
       udp.send(reply, rinfo.port, rinfo.address);
     });
+    udp.on('listening', () => {
+      udpReady = true;
+      try { udp.setBroadcast(true); } catch (_) { /* ignore */ }
+      nudge('up'); // "I'm here": an open phone app syncs now
+    });
     udp.bind(discoveryPort);
   }
   let lastError = '';
 
+  // "Sync now" to the phones on this network. Only while listening, and only with a
+  // paired phone (nobody else needs to hear it).
+  function sendNudge(kind) {
+    if (!udp || !udpReady || !server || !server.address() || !Object.keys(state.devices).length) return false;
+    const msg = Buffer.from(`${NUDGE_MSG} ${state.id} ${kind}`);
+    for (const addr of nudgeTargets()) {
+      try { udp.send(msg, phonePort, addr, () => {}); } catch (_) { /* ignore: the phone syncs on its own later */ }
+    }
+    return true;
+  }
+  function nudge(kind, delays = NUDGE_RETRY_MS) {
+    for (const tm of nudgeTimers) clearTimeout(tm);
+    nudgeTimers = [];
+    if (!udp || !server) return false;
+    if (Object.keys(state.devices).length) log(`sync: nudging the phone (${kind})`);
+    for (const d of delays) {
+      if (!d) sendNudge(kind);
+      else nudgeTimers.push(setTimeout(() => sendNudge(kind), d));
+    }
+    return true;
+  }
+
+  // Before quitting: "bye" to the phone, then wait (at most maxMs) for its last sync.
+  // Resolves true when a phone synced, false on timeout / nothing to wait for.
+  function goodbye(maxMs = 3000) {
+    if (!sendNudge('bye')) return Promise.resolve(false);
+    log('sync: saying bye to the phone');
+    nudgeTimers.push(setTimeout(() => sendNudge('bye'), 600));
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (v) => { if (!done) { done = true; resolve(v); } };
+      syncWaiters.push(finish);
+      setTimeout(() => finish(false), maxMs);
+    });
+  }
+
   function closeServer() {
+    for (const tm of nudgeTimers) clearTimeout(tm);
+    nudgeTimers = [];
+    if (syncWaiters.length) { const ws = syncWaiters; syncWaiters = []; ws.forEach((w) => w(false)); }
     if (server) { try { server.close(); } catch (_) { /* ignore */ } server = null; log('sync: not listening'); }
     if (udp) { try { udp.close(); } catch (_) { /* ignore */ } udp = null; }
+    udpReady = false;
     nonces.clear();
   }
 
@@ -478,7 +557,16 @@ function create(deps) {
   }
 
   return {
-    start, stop, info, noteLocalChange,
+    start, stop, info, noteLocalChange, goodbye,
+    // after sleep: check the network again (it may have changed), then "I'm here"
+    // (a little later: Wi-Fi takes a few seconds to come back after waking up)
+    async wake() {
+      if (!enabled) return false;
+      await checkNetwork();
+      return nudge('up', [2000, 6000, 15000]);
+    },
+    // Windows is shutting down: no time to wait, just tell the phone (best effort)
+    sayBye() { return sendNudge('bye'); },
     newCode() { state.code = newCode(); save(); changed(); return info(); },
     forget(id) {
       if (id === 'all') state.devices = {};
@@ -506,4 +594,4 @@ function create(deps) {
   };
 }
 
-module.exports = { create, deriveKey, hmac, sha256, SYNC_FIELDS, HTTP_PORT, DISCOVERY_PORT, DISCOVER_MSG, PROTOCOL, PORT_TRIES };
+module.exports = { create, deriveKey, hmac, sha256, SYNC_FIELDS, HTTP_PORT, DISCOVERY_PORT, DISCOVER_MSG, PHONE_PORT, NUDGE_MSG, PROTOCOL, PORT_TRIES };

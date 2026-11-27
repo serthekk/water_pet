@@ -18,8 +18,8 @@ android {
         applicationId = "com.serthekk.watercat"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.8.0"
+        versionCode = 10
+        versionName = "1.9.0"
     }
 
     // Release key: WATERCAT_KEYSTORE (path to the .p12), WATERCAT_KEYSTORE_PASSWORD and

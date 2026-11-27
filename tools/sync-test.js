@@ -8,6 +8,9 @@ const path = require('path');
 const http = require('http');
 const dgram = require('dgram');
 const Sync = require('../sync.js');
+// tests never broadcast "sync now" onto the real network (the nudge test picks 127.0.0.1)
+const create0 = Sync.create;
+Sync.create = (deps) => create0({ nudgeTargets: () => [], ...deps });
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'watercat-sync-'));
 let clock = Date.UTC(2026, 10, 20, 12, 0, 0);
@@ -236,6 +239,46 @@ ok('new code', s2.newCode().code !== c1 || c1 === s2.info().code);
   await new Promise((res) => setTimeout(res, 300));
   ok('"use this network as home"', hn2.info().homeNetwork === 'Office' && hn2.info().running);
   hn2.stop();
+
+  // "sync now" nudges to the phone (UDP): "up" when listening, "bye" + goodbye() before quitting
+  {
+    const pp = 42000 + Math.floor(Math.random() * 10000);
+    const heard = [];
+    const phone = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    await new Promise((res) => phone.bind(pp, '127.0.0.1', res));
+    phone.on('message', (m) => heard.push(m.toString()));
+    const mkN = (d) => Sync.create({ dataDir: d, hooks, now: () => clock, httpPort: 0, discoveryPort: 0, phonePort: pp, nudgeTargets: () => ['127.0.0.1'], networks: async () => null });
+    const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+
+    const lonely = mkN(fs.mkdtempSync(path.join(os.tmpdir(), 'watercat-sync-n0-')));
+    lonely.start();
+    await wait(300);
+    ok('no paired phone: no nudge is sent', lonely.info().running && heard.length === 0);
+    ok('no paired phone: goodbye() does not wait', (await Promise.race([lonely.goodbye(5000), wait(200).then(() => 'slow')])) === false);
+    lonely.stop();
+
+    const nd = fs.mkdtempSync(path.join(os.tmpdir(), 'watercat-sync-n1-'));
+    const nz = mkN(nd);
+    const np = nz._handle.pair({ code: nz.info().code, deviceId: 'phone-nnnnnnnn', deviceName: 'Nudge' });
+    nz.start();
+    await wait(400);
+    const id = nz.info().id;
+    ok('listening with a paired phone: "WATERCAT_HERE 1 <id> up"', heard.includes(`${Sync.NUDGE_MSG} ${id} up`));
+    ok('the nudge carries no secrets (only the computer id)', heard.every((m) => m.length < 64 && !m.includes(np.body.token) && !m.includes(nz.info().code)));
+    heard.length = 0;
+    const bye = nz.goodbye(3000);
+    await wait(150);
+    ok('goodbye() says "bye" to the phone', heard.includes(`${Sync.NUDGE_MSG} ${id} bye`));
+    const t1 = Date.now();
+    ok('the phone\'s last sync goes through', S(nz._handle, 'phone-nnnnnnnn', np.body.token, { now: clock }).status === 200);
+    ok('goodbye() resolves as soon as the phone synced', (await bye) === true && Date.now() - t1 < 1000);
+    const t2 = Date.now();
+    ok('goodbye() gives up after its time limit', (await nz.goodbye(250)) === false && Date.now() - t2 >= 240);
+    nz.stop();
+    ok('not listening: goodbye() does not wait', (await Promise.race([nz.goodbye(5000), wait(200).then(() => 'slow')])) === false);
+    await wait(700); // (the delayed second "bye" was cleared by stop)
+    phone.close();
+  }
   fs.rmSync(dir, { recursive: true, force: true });
   console.log(`\n${passed} passed`);
 })().catch((e) => { console.error(e); process.exit(1); });
