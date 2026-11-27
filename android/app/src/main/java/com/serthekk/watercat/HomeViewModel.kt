@@ -25,7 +25,12 @@ data class HomeUi(
     val adoptedOn: String = "",
     val trip: Adventures.Trip? = null, // the latest trip (today's, or one she never was welcomed back from)
     val journal: List<Adventures.Trip> = emptyList(), // welcomed trips, newest first
+    val bag: Set<String> = emptySet(), // item ids in the inventory (bought + souvenirs)
+    val decor: Set<String> = emptySet(), // decorations placed in her scene
 ) {
+    val ageDays get() = if (today.isEmpty()) 1 else PetStats.ageDays(adoptedOn.ifEmpty { today }, today)
+    val stage get() = Growth.stage(ageDays, wallet.sipsTotal)
+
     fun adventure(now: Long): Adventures.Status =
         Adventures.status(wallet.sipsToday, today, trip?.takeIf { it.date == today || !it.claimed }, now)
     val goalsLeft get() = goals.count { !it.done }
@@ -46,8 +51,8 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
             combine(repo.goals, repo.completions(d), repo.ledger, repo.streak(d), repo.adoptedOn) { goals, done, ledger, streak, adopted ->
                 HomeUi(d, goals.map { GoalRow(it, it.id in done) }, GameRules.wallet(ledger, d), streak, adopted ?: d)
             },
-            repo.latestTrip, repo.journal,
-        ) { ui, trip, journal -> ui.copy(trip = trip, journal = journal) }
+            repo.latestTrip, repo.journal, repo.inventory, repo.decor,
+        ) { ui, trip, journal, inv, decor -> ui.copy(trip = trip, journal = journal, bag = inv.map { it.itemId }.toSet(), decor = decor) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUi())
 
     /** Checks / unchecks a goal; [onReward] runs (on the main thread) when it was just checked. */
@@ -57,6 +62,11 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startAdventure(onStarted: (Adventures.Trip) -> Unit = {}) { viewModelScope.launch { repo.startAdventure()?.let(onStarted) } }
     fun claimAdventure(trip: Adventures.Trip, onClaimed: () -> Unit = {}) { viewModelScope.launch { if (repo.claimAdventure(trip)) onClaimed() } }
+
+    fun buy(item: Catalog.Item, onBought: () -> Unit, onFailed: () -> Unit = {}) {
+        viewModelScope.launch { if (repo.buy(item.id, item.price, item.label)) onBought() else onFailed() }
+    }
+    fun setDecor(id: String, placed: Boolean) { viewModelScope.launch { repo.setDecor(id, placed) } }
 
     fun addGoal(title: String, icon: String, sips: Int) { viewModelScope.launch { repo.addGoal(title, icon, sips) } }
     fun editGoal(goal: GoalEntity, title: String, icon: String, sips: Int) { viewModelScope.launch { repo.editGoal(goal, title, icon, sips) } }

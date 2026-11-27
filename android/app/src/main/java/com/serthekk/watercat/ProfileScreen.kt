@@ -97,6 +97,8 @@ private fun ProfileCard(s: State, me: CatProfile, ui: HomeUi, now: Long) {
                         Text(me.name, style = MaterialTheme.typography.headlineSmall)
                         val n = ui.journal.size
                         Text("${me.pronouns} · $n adventure${if (n == 1) "" else "s"}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${ui.stage.icon} ${ui.stage.name}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Growth.nextNeeds(ui.ageDays, ui.wallet.sipsTotal)?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

@@ -157,7 +157,7 @@ internal fun TodayScreen(s: State, now: Long, vm: HomeViewModel = viewModel()) {
         // her scene (empty while she is out exploring: just her paw prints)
         Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, elevation = CardDefaults.cardElevation(2.dp)) {
             Box(Modifier.fillMaxWidth().aspectRatio(1.25f)) {
-                Scene(nowCal, night = sleeping, modifier = Modifier.matchParentSize(), away = adv is Adventures.Status.Away)
+                Scene(nowCal, night = sleeping, modifier = Modifier.matchParentSize(), away = adv is Adventures.Status.Away, decor = ui.decor)
                 if (adv is Adventures.Status.Away) Surface(Modifier.align(Alignment.Center), shape = RoundedCornerShape(18.dp), color = Color.White.copy(alpha = 0.9f)) {
                     Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("🐾 ${me.name} is out exploring the garden", fontWeight = FontWeight.Bold, color = Color(0xFF3B2F2F), textAlign = TextAlign.Center)
@@ -169,7 +169,7 @@ internal fun TodayScreen(s: State, now: Long, vm: HomeViewModel = viewModel()) {
                     mood = catMood(cups, s.goalCups, s.quietStart, s.quietEnd, nowCal),
                     seasonal = sprites.seasonalFor(nowCal.get(Calendar.YEAR), nowCal.get(Calendar.MONTH), nowCal.get(Calendar.DAY_OF_MONTH)),
                     hat = s.partyShownDate == today, sleeping = sleeping, catName = me.name,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp).fillMaxWidth(0.66f).aspectRatio(30f / 27f)
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp).fillMaxWidth(0.66f * ui.stage.size).aspectRatio(30f / 27f) // she grows
                         // tap = a drink (like clicking her on the desktop), hold = nose boop, stroke = pet
                         .pointerInput(Unit) {
                             detectTapGestures(onTap = { drank() }, onLongPress = {
@@ -229,7 +229,7 @@ private fun WelcomeHomeDialog(trip: Adventures.Trip, me: CatProfile, onClose: ()
 
 // --- the scene: sky by time of day, sun / moon, hills, grass, flowers -------------
 @Composable
-private fun Scene(now: Calendar, night: Boolean, modifier: Modifier, away: Boolean = false) {
+private fun Scene(now: Calendar, night: Boolean, modifier: Modifier, away: Boolean = false, decor: Set<String> = emptySet()) {
     val hour = now.get(Calendar.HOUR_OF_DAY)
     val dark = night || hour < 6 || hour >= 21
     val dusk = !dark && hour >= 17
@@ -272,6 +272,40 @@ private fun Scene(now: Calendar, night: Boolean, modifier: Modifier, away: Boole
             drawRect(c, Offset(fx - px, fy - px), Size(px * 3, px))
             drawRect(c, Offset(fx, fy - px * 2), Size(px, px * 3))
             drawRect(Color(0xFFFFF6D5), Offset(fx, fy - px), Size(px, px))
+        }
+        // garden decorations from the bag
+        if ("pond" in decor) {
+            drawOval(Color(0xFF4A90C8), Offset(w * 0.02f, ground + h * 0.08f), Size(w * 0.24f, h * 0.09f))
+            drawOval(Color(0xFF7CC0EA), Offset(w * 0.05f, ground + h * 0.095f), Size(w * 0.16f, h * 0.045f))
+            drawCircle(Color(0xFFFFD23F), w * 0.016f, Offset(w * 0.15f, ground + h * 0.11f)) // a duck
+            drawRect(Color(0xFFE8913A), Offset(w * 0.163f, ground + h * 0.108f), Size(w * 0.012f, w * 0.006f))
+        }
+        if ("plant" in decor) {
+            val bx = w * 0.84f
+            drawRect(Color(0xFFC86E3A), Offset(bx, ground - h * 0.02f), Size(w * 0.09f, h * 0.08f))
+            drawRect(Color(0xFFA85A2E), Offset(bx - w * 0.01f, ground - h * 0.03f), Size(w * 0.11f, h * 0.022f))
+            for ((dx, dy, r) in listOf(Triple(0.045f, -0.08f, 0.05f), Triple(0.0f, -0.1f, 0.035f), Triple(0.09f, -0.11f, 0.04f), Triple(0.045f, -0.15f, 0.04f))) {
+                drawCircle(Color(0xFF5FAE5A), w * r, Offset(bx + w * dx, ground + h * dy))
+            }
+        }
+        if ("feeder" in decor) {
+            val fx = w * 0.07f
+            drawRect(Color(0xFF8A6A4A), Offset(fx, ground - h * 0.3f), Size(w * 0.014f, h * 0.3f))
+            drawPath(Path().apply { moveTo(fx - w * 0.06f, ground - h * 0.3f); lineTo(fx + w * 0.007f, ground - h * 0.38f); lineTo(fx + w * 0.074f, ground - h * 0.3f); close() }, Color(0xFFD6457A))
+            drawRect(Color(0xFFF3D7A6), Offset(fx - w * 0.045f, ground - h * 0.3f), Size(w * 0.104f, h * 0.06f))
+            drawCircle(Color(0xFF5FB4E8), w * 0.018f, Offset(fx + w * 0.03f, ground - h * 0.4f)) // a little bird
+            drawCircle(Color(0xFF5FB4E8), w * 0.012f, Offset(fx + w * 0.048f, ground - h * 0.41f))
+        }
+        if ("lights" in decor) {
+            val bulbs = listOf(Color(0xFFFF5FA2), Color(0xFFFFD23F), Color(0xFF5FD3FF), Color(0xFFB07BFF), Color(0xFF7DFF8A))
+            val path = Path().apply { moveTo(0f, h * 0.04f); quadraticTo(w * 0.5f, h * 0.2f, w, h * 0.04f) }
+            drawPath(path, Color(0xFF3B2F2F).copy(alpha = 0.5f), style = Stroke(width = w * 0.004f))
+            for (i in 1 until 12) {
+                val t = i / 12f
+                val x = w * t
+                val y = (1 - t) * (1 - t) * h * 0.04f + 2 * (1 - t) * t * h * 0.2f + t * t * h * 0.04f
+                drawCircle(bulbs[i % bulbs.size], w * 0.012f, Offset(x, y + w * 0.012f))
+            }
         }
         if (away) { // her paw prints, off towards the garden
             val paw = if (dark) Color(0xFF2A4038) else Color(0xFF5E9E52)

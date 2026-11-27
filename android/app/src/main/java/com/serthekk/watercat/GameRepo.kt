@@ -42,6 +42,8 @@ class GameRepo private constructor(private val ctx: Context) {
     val ledger: Flow<List<Reward>> = db.ledger().observeAll().map { l -> l.map { it.toReward() } }
     val inventory: Flow<List<InventoryEntity>> = db.inventory().observe()
     val adoptedOn: Flow<String?> = db.meta().observe(ADOPTED)
+    /** Garden decorations placed in her scene (ids of "decor:<id>" items she owns). */
+    val decor: Flow<Set<String>> = db.meta().observe(DECOR).map { v -> v?.split(',')?.filter { it.isNotBlank() }?.toSet() ?: emptySet() }
     val latestTrip: Flow<Adventures.Trip?> = db.adventures().observeLatest().map { it?.trip() }
     val journal: Flow<List<Adventures.Trip>> = db.adventures().observeClaimed().map { l -> l.map { it.trip() } }
 
@@ -158,12 +160,19 @@ class GameRepo private constructor(private val ctx: Context) {
     // --- shop (step 6) --------------------------------------------------------------
     suspend fun buy(itemId: String, price: Int, label: String): Boolean = lock.withLock { db.shop().buy(itemId, price, today(), "Bought $label") }
 
+    suspend fun setDecor(id: String, placed: Boolean) = lock.withLock {
+        val cur = db.meta().get(DECOR)?.split(',')?.filter { it.isNotBlank() }?.toMutableSet() ?: mutableSetOf()
+        if (placed) cur += id else cur -= id
+        db.meta().put(MetaEntity(DECOR, cur.sorted().joinToString(",")))
+    }
+
     suspend fun adoptedOn(): String = db.meta().get(ADOPTED) ?: today()
 
     companion object {
         private const val SEEDED = "starterPlanSeeded"
         private const val ADOPTED = "adoptedOn"
         private const val BEST = "bestCareStreak"
+        private const val DECOR = "decor"
 
         @Volatile private var instance: GameRepo? = null
         fun get(ctx: Context): GameRepo = instance ?: synchronized(this) { instance ?: GameRepo(ctx.applicationContext).also { instance = it } }

@@ -49,6 +49,9 @@ object Adventures {
         return fresh[abs((seed xor (seed ushr 17)) % fresh.size).toInt()]
     }
 
+    /** Every souvenir by id (what "souvenir:<id>" in the bag is). */
+    val souvenirs: Map<String, Souvenir> get() = STORIES.associate { it.souvenir.id to it.souvenir }
+
     fun treatsFor(seed: Long): Int = 8 + abs((seed * 31 + 7) % 8).toInt() // 8..15 🐟
 
     fun tell(story: Story, name: String, gender: String): String {
