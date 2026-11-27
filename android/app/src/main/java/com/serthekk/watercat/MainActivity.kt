@@ -122,13 +122,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Tab(val icon: String, val label: String) { Today("💧", "Today"), Cat("🐱", "Cat"), Alarms("⏰", "Alarms"), Settings("⚙️", "Settings"), Sync("📶", "Sync") }
+private enum class Tab(val icon: String, val label: String) { Today("💧", "Today"), Shop("🛍️", "Shop"), Bag("🎒", "Bag"), Cat("🐱", "Cat"), More("☰", "More") }
 
 @Composable
 internal fun App(startTab: Int = 0) {
     val ctx = LocalContext.current
     val s by Store.get(ctx).state.collectAsState()
-    var tab by rememberSaveable { mutableStateOf(Tab.entries[startTab]) }
+    var tab by rememberSaveable { mutableStateOf(Tab.entries[startTab.coerceIn(0, Tab.entries.lastIndex)]) }
+    var more by rememberSaveable { mutableIntStateOf(0) } // under More: Alarms, Settings, Sync
     // ticks every 30 s so times ("in 12 min") stay fresh
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) { while (true) { now = System.currentTimeMillis(); delay(30_000) } }
@@ -145,10 +146,23 @@ internal fun App(startTab: Int = 0) {
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
                 Tab.Today -> TodayScreen(s, now)
+                Tab.Shop -> ShopScreen(s)
+                Tab.Bag -> BagScreen(s)
                 Tab.Cat -> ProfileScreen(s, now)
-                Tab.Alarms -> AlarmsScreen(s)
-                Tab.Settings -> SettingsScreen(s)
-                Tab.Sync -> SyncScreen(s, now)
+                Tab.More -> Column {
+                    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("⏰ Alarms", "⚙️ Settings", "📶 Sync").forEachIndexed { i, label ->
+                            FilterChip(more == i, { more = i }, label = { Text(label) })
+                        }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        when (more) {
+                            0 -> AlarmsScreen(s)
+                            1 -> SettingsScreen(s)
+                            else -> SyncScreen(s, now)
+                        }
+                    }
+                }
             }
         }
     }
@@ -479,10 +493,12 @@ private fun LookCard(s: State) {
 /** Her name, pronouns, description, coat, items and sleeping spot. Syncs with the desktop's active cat. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun CatEditor(s: State) {
+private fun CatEditor(s: State, vm: HomeViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
     val ctx = LocalContext.current
     val sprites = SpriteData.get(ctx)
     val me = s.cat(sprites)
+    val ui by vm.ui.collectAsState()
+    val owned = ui.bag + Catalog.ownedFree(me) // coats, clothes and beds come from the Shop
     var name by remember(me.id) { mutableStateOf(me.name) }
     var desc by remember(me.id) { mutableStateOf(me.description) }
     LaunchedEffect(me.name) { if (me.name != name.trim()) name = me.name } // changed by a sync
@@ -499,7 +515,7 @@ private fun CatEditor(s: State) {
         OutlinedTextField(desc, { v -> desc = v.take(200); editCat(ctx) { it.withDescription(desc) } }, label = { Text("About ${me.name}") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
         Text("Coat", fontWeight = FontWeight.SemiBold)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            sprites.presets.values.filter { !it.unlock || it.id == me.preset }.forEach { p ->
+            sprites.presets.values.filter { "coat:${it.id}" in owned || it.id == me.preset }.forEach { p ->
                 val sel = p.id == me.preset
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(76.dp).clip(MaterialTheme.shapes.medium)
                     .background(if (sel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
@@ -512,17 +528,18 @@ private fun CatEditor(s: State) {
         if (me.preset == "custom") Text("Her own colours from the computer (pick a coat to replace them).", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Wearing", fontWeight = FontWeight.SemiBold)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            sprites.accessories.values.filter { !it.unlock || me.isWearing(it.id) }.forEach { item ->
+            sprites.accessories.values.filter { "acc:${it.id}" in owned || me.isWearing(it.id) }.forEach { item ->
                 val on = me.isWearing(item.id)
                 FilterChip(on, { editCat(ctx) { it.wearing(item.id, !on) } }, label = { Text(item.label) })
             }
         }
         Text("Sleeps in", fontWeight = FontWeight.SemiBold)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("random" to "Random", "bed" to "Cat bed", "tree" to "Cat tree", "box" to "Box", "none" to "The floor").forEach { (id, label) ->
+            listOf("random" to "Random", "bed" to "Cat bed", "tree" to "Cat tree", "box" to "Box", "none" to "The floor").filter { "spot:${it.first}" in owned }.forEach { (id, label) ->
                 FilterChip(me.sleepSpot == id, { editCat(ctx) { it.withSleepSpot(id) } }, label = { Text(label) })
             }
         }
+        Text("More coats, clothes and beds are in the Shop 🛍️ (bought with 🐟 treats).", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         ToggleRow("Tail", null, me.tail) { v -> editCat(ctx) { it.withTail(v) } }
         ToggleRow("Whiskers", null, me.whiskers) { v -> editCat(ctx) { it.withWhiskers(v) } }
     }

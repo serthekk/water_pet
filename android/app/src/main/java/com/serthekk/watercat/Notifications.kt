@@ -15,6 +15,8 @@ import android.os.Build
 object Notifications {
     const val CH_REMINDERS = "reminders_meow"
     const val CH_ALARMS = "alarms"
+    const val CH_ADVENTURES = "adventures"
+    private const val ID_ADVENTURE = 2
     private const val ID_REMINDER = 1
 
     /** Her reminder lines (the same ones the desktop cat rotates). */
@@ -54,7 +56,10 @@ object Notifications {
             setBypassDnd(true)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
-        nm(ctx).createNotificationChannels(listOf(reminders, alarms))
+        val adventures = NotificationChannel(CH_ADVENTURES, "Adventures", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = "When your cat is back from exploring"
+        }
+        nm(ctx).createNotificationChannels(listOf(reminders, alarms, adventures))
     }
 
     private fun openApp(ctx: Context) = PendingIntent.getActivity(ctx, 0,
@@ -83,6 +88,20 @@ object Notifications {
     }
 
     fun cancelReminder(ctx: Context) = nm(ctx).cancel(ID_REMINDER)
+
+    fun showAdventureBack(ctx: Context, name: String) {
+        if (!canNotify(ctx)) return
+        val n = Notification.Builder(ctx, CH_ADVENTURES)
+            .setSmallIcon(R.drawable.ic_stat_cat)
+            .setContentTitle("🎒 $name is back from exploring!")
+            .setContentText("Come and see what $name found 🐾")
+            .setContentIntent(openApp(ctx))
+            .setAutoCancel(true)
+            .build()
+        nm(ctx).notify(ID_ADVENTURE, n)
+    }
+
+    fun cancelAdventure(ctx: Context) = nm(ctx).cancel(ID_ADVENTURE)
 
     private fun alarmNotifId(id: String) = 1000 + (id.hashCode() and 0xffff)
 

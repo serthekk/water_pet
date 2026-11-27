@@ -11,6 +11,10 @@ class AlarmReceiver : BroadcastReceiver() {
             Scheduler.ACTION_REMINDER -> Scheduler.onReminder(ctx)
             Scheduler.ACTION_LOG_CUP -> Actions.addCup(ctx)
             Scheduler.ACTION_REMINDER_DISMISSED -> Scheduler.onReminderDismissed(ctx)
+            Scheduler.ACTION_ADVENTURE_BACK -> {
+                val s = Store.get(ctx).now
+                if (s.adventureBackAt in 1..System.currentTimeMillis() + 60_000) Notifications.showAdventureBack(ctx, s.cat(SpriteData.get(ctx)).name)
+            }
             Scheduler.ACTION_ALARM -> {
                 if (id == "test") {
                     Notifications.showAlarm(ctx, Alarm("test", hhmm(0, 0), "Test alarm 🐾 It works!"))

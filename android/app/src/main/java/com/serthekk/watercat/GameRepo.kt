@@ -17,7 +17,7 @@ import kotlinx.coroutines.sync.withLock
  * GameRules; every change goes through one lock, so a tap and a sync never race.
  * App-wide (created in WaterCatApp); keeps the water rewards in step with the cups.
  */
-class GameRepo private constructor(ctx: Context) {
+class GameRepo private constructor(private val ctx: Context) {
     private val db = GameDb.get(ctx)
     private val store = Store.get(ctx)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -42,6 +42,10 @@ class GameRepo private constructor(ctx: Context) {
     val ledger: Flow<List<Reward>> = db.ledger().observeAll().map { l -> l.map { it.toReward() } }
     val inventory: Flow<List<InventoryEntity>> = db.inventory().observe()
     val adoptedOn: Flow<String?> = db.meta().observe(ADOPTED)
+    /** Garden decorations placed in her scene (ids of "decor:<id>" items she owns). */
+    val decor: Flow<Set<String>> = db.meta().observe(DECOR).map { v -> v?.split(',')?.filter { it.isNotBlank() }?.toSet() ?: emptySet() }
+    val latestTrip: Flow<Adventures.Trip?> = db.adventures().observeLatest().map { it?.trip() }
+    val journal: Flow<List<Adventures.Trip>> = db.adventures().observeClaimed().map { l -> l.map { it.trip() } }
 
     fun streak(today: String): Flow<GameRules.Streak> =
         combine(db.ledger().observeActiveDays(), db.meta().observe(BEST)) { days, best ->
@@ -123,8 +127,44 @@ class GameRepo private constructor(ctx: Context) {
         GameRules.milestoneReward(s.current, date)?.let { db.ledger().insert(LedgerEntity.of(it)) }
     }
 
+    // --- adventures (step 5) ---------------------------------------------------------
+    /** Sends her exploring, if today's bar is full and she hasn't been out today. */
+    suspend fun startAdventure(): Adventures.Trip? = lock.withLock {
+        val now = System.currentTimeMillis()
+        val today = today()
+        val sips = db.ledger().sipsOn(today)
+        val latest = db.adventures().latest()?.trip()
+        if (Adventures.status(sips, today, latest?.takeIf { it.date == today || !it.claimed }, now) != Adventures.Status.Ready) return@withLock null
+        val seed = now xor (now ushr 7)
+        val story = Adventures.pickStory(seed, db.adventures().recentStories().reversed())
+        val e = AdventureEntity(date = today, startedAt = now, returnsAt = now + Adventures.TRIP_MS, storyId = story.id, treats = Adventures.treatsFor(seed))
+        val id = db.adventures().insert(e)
+        store.update { it.copy(adventureBackAt = e.returnsAt) }
+        Scheduler.scheduleAdventureBack(ctx)
+        e.copy(id = id).trip()
+    }
+
+    /** Welcomes her home: her treats + the souvenir go in the wallet / bag (once). */
+    suspend fun claimAdventure(trip: Adventures.Trip): Boolean = lock.withLock {
+        if (System.currentTimeMillis() < trip.returnsAt) return@withLock false
+        if (db.adventures().claim(trip.id, System.currentTimeMillis()) == 0) return@withLock false
+        db.ledger().insert(LedgerEntity.of(Adventures.reward(trip)))
+        val souvenir = Adventures.STORIES.first { it.id == trip.storyId }.souvenir
+        db.inventory().insert(InventoryEntity("souvenir:${souvenir.id}", "adventure"))
+        store.update { it.copy(adventureBackAt = 0) }
+        Scheduler.scheduleAdventureBack(ctx)
+        Notifications.cancelAdventure(ctx)
+        true
+    }
+
     // --- shop (step 6) --------------------------------------------------------------
     suspend fun buy(itemId: String, price: Int, label: String): Boolean = lock.withLock { db.shop().buy(itemId, price, today(), "Bought $label") }
+
+    suspend fun setDecor(id: String, placed: Boolean) = lock.withLock {
+        val cur = db.meta().get(DECOR)?.split(',')?.filter { it.isNotBlank() }?.toMutableSet() ?: mutableSetOf()
+        if (placed) cur += id else cur -= id
+        db.meta().put(MetaEntity(DECOR, cur.sorted().joinToString(",")))
+    }
 
     suspend fun adoptedOn(): String = db.meta().get(ADOPTED) ?: today()
 
@@ -132,6 +172,7 @@ class GameRepo private constructor(ctx: Context) {
         private const val SEEDED = "starterPlanSeeded"
         private const val ADOPTED = "adoptedOn"
         private const val BEST = "bestCareStreak"
+        private const val DECOR = "decor"
 
         @Volatile private var instance: GameRepo? = null
         fun get(ctx: Context): GameRepo = instance ?: synchronized(this) { instance ?: GameRepo(ctx.applicationContext).also { instance = it } }

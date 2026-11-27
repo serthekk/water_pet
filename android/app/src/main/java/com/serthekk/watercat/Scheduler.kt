@@ -20,6 +20,7 @@ object Scheduler {
     const val ACTION_REMINDER_DISMISSED = "com.serthekk.watercat.REMINDER_DISMISSED"
     const val ACTION_ALARM_DISMISS = "com.serthekk.watercat.ALARM_DISMISS"
     const val ACTION_ALARM_SNOOZE = "com.serthekk.watercat.ALARM_SNOOZE"
+    const val ACTION_ADVENTURE_BACK = "com.serthekk.watercat.ADVENTURE_BACK"
     const val EXTRA_ID = "id"
     const val SNOOZE_MINUTES = 10
 
@@ -36,6 +37,17 @@ object Scheduler {
     fun rescheduleAll(ctx: Context) {
         scheduleReminder(ctx)
         scheduleAlarms(ctx)
+        scheduleAdventureBack(ctx)
+    }
+
+    /** "She's back from exploring" when her trip ends (survives a reboot: the time is in the state). */
+    fun scheduleAdventureBack(ctx: Context) {
+        val at = Store.get(ctx).now.adventureBackAt
+        val pi = broadcast(ctx, ACTION_ADVENTURE_BACK, "adventure")
+        if (at <= 0) { am(ctx).cancel(pi); return }
+        val t = maxOf(at, System.currentTimeMillis() + 1_000)
+        if (canExact(ctx)) am(ctx).setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi)
+        else am(ctx).setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi)
     }
 
     /** When the next water reminder may show, given quiet hours and a pause. */

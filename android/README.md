@@ -123,6 +123,9 @@ networks: async () => null })`, hooks as in `tools/sync-test.js`), then run
 | `HomeScreen.kt` | Today: her scene + speech bubble, energy bar, the big glass, goal cards, streak card, reminders |
 | `ProfileScreen.kt` | The Cat tab: profile card (age, friendship, stats, friend code, About / Personality) |
 | `PetStats.kt` | Profile numbers + her lines, as plain functions (unit tested) |
+| `Adventures.kt` | Exploring trips as plain functions: status, countdown, stories, souvenirs, rewards (unit tested) |
+| `Shop.kt` | Growth stages, the catalog, the daily shop, buying rules (unit tested) |
+| `ShopScreen.kt` | The Shop and Bag tabs (wear clothes, change coat / bed, place garden decorations, finds) |
 | `HomeViewModel.kt` | The home screen's state (goals, wallet, streak) and actions |
 | `CatProfile.kt` | The cat (the desktop's active cat profile, synced both ways as one field) |
 | `PixelCat.kt` | The animated cat on screen: idle life, reactions, hops, hearts, sleeping |

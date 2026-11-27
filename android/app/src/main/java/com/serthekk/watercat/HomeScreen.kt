@@ -52,6 +52,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -112,6 +113,19 @@ internal fun TodayScreen(s: State, now: Long, vm: HomeViewModel = viewModel()) {
     LaunchedEffect(partyOn) { if (partyOn) { delay(20_500); partyOn = false } }
     val nowCal = remember(now) { Calendar.getInstance().apply { timeInMillis = now } }
     val sleeping = isQuietAt(nowCal.get(Calendar.HOUR_OF_DAY) * 60 + nowCal.get(Calendar.MINUTE), s.quietStart, s.quietEnd)
+    // a 1 s clock only while she is out (the countdown); the 30 s app clock otherwise
+    var clock by remember { mutableLongStateOf(now) }
+    LaunchedEffect(now, ui.trip) {
+        clock = System.currentTimeMillis()
+        val t = ui.trip
+        while (t != null && !t.claimed && clock <= t.returnsAt + 2_000) {
+            delay(1_000)
+            clock = System.currentTimeMillis()
+        }
+    }
+    val adv = ui.adventure(maxOf(clock, now))
+    var welcomed by remember { mutableStateOf<Adventures.Trip?>(null) }
+    LaunchedEffect(adv is Adventures.Status.Back) { if (adv is Adventures.Status.Back) { delay(900); bubble.say("I'm back! Look what I found 🎒") } }
     LaunchedEffect(Unit) { // a hello when the app opens
         delay(600)
         bubble.say(when {
@@ -140,17 +154,22 @@ internal fun TodayScreen(s: State, now: Long, vm: HomeViewModel = viewModel()) {
                 TextButton({ sound.stopParty(); partyOn = false }) { Text("Stop the party") }
             }
         }
-        // her scene
+        // her scene (empty while she is out exploring: just her paw prints)
         Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large, elevation = CardDefaults.cardElevation(2.dp)) {
             Box(Modifier.fillMaxWidth().aspectRatio(1.25f)) {
-                Scene(nowCal, night = sleeping, modifier = Modifier.matchParentSize())
-                PixelCat(
+                Scene(nowCal, night = sleeping, modifier = Modifier.matchParentSize(), away = adv is Adventures.Status.Away, decor = ui.decor)
+                if (adv is Adventures.Status.Away) Surface(Modifier.align(Alignment.Center), shape = RoundedCornerShape(18.dp), color = Color.White.copy(alpha = 0.9f)) {
+                    Column(Modifier.padding(horizontal = 18.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("🐾 ${me.name} is out exploring the garden", fontWeight = FontWeight.Bold, color = Color(0xFF3B2F2F), textAlign = TextAlign.Center)
+                        Text("back in ${Adventures.countdown(adv.remainingMs)}", color = Color(0xFF6B5A5A), fontWeight = FontWeight.SemiBold)
+                    }
+                } else PixelCat(
                     cat, me.look(),
                     accessories = me.worn(), spot = me.spotFor(today), spotColors = me.spotColors(),
                     mood = catMood(cups, s.goalCups, s.quietStart, s.quietEnd, nowCal),
                     seasonal = sprites.seasonalFor(nowCal.get(Calendar.YEAR), nowCal.get(Calendar.MONTH), nowCal.get(Calendar.DAY_OF_MONTH)),
                     hat = s.partyShownDate == today, sleeping = sleeping, catName = me.name,
-                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp).fillMaxWidth(0.66f).aspectRatio(30f / 27f)
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp).fillMaxWidth(0.66f * ui.stage.size).aspectRatio(30f / 27f) // she grows
                         // tap = a drink (like clicking her on the desktop), hold = nose boop, stroke = pet
                         .pointerInput(Unit) {
                             detectTapGestures(onTap = { drank() }, onLongPress = {
@@ -170,7 +189,11 @@ internal fun TodayScreen(s: State, now: Long, vm: HomeViewModel = viewModel()) {
                 )
                 SpeechBubble(bubble, Modifier.align(Alignment.TopCenter).padding(top = 14.dp, start = 24.dp, end = 24.dp))
             }
-            EnergyBar(ui, me.name)
+            AdventurePanel(ui, adv, me, onSend = {
+                vm.startAdventure { sound.meow(); sound.haptic(view); bubble.say("See you soon! 🐾") }
+            }, onWelcome = { trip ->
+                vm.claimAdventure(trip) { welcomed = trip; sound.meow(); sound.purr(2.4f); sound.haptic(view); cat.play("happy"); cat.hop(); cat.hearts(5) }
+            })
         }
         WaterCard(s, cups, ::drank)
         GoalsSection(ui, s, onReward = { r, allDone ->
@@ -182,11 +205,31 @@ internal fun TodayScreen(s: State, now: Long, vm: HomeViewModel = viewModel()) {
         RemindersCard(s, now)
         if (s.paired) Text(syncLine(s, now), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center, fontSize = 13.sp)
     }
+    welcomed?.let { t -> WelcomeHomeDialog(t, me) { welcomed = null } }
+}
+
+/** She's home: her story, her treats, her souvenir. */
+@Composable
+private fun WelcomeHomeDialog(trip: Adventures.Trip, me: CatProfile, onClose: () -> Unit) {
+    val story = Adventures.STORIES.first { it.id == trip.storyId }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("${me.name} is back from ${story.place}!") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(Adventures.tell(story, me.name, me.gender))
+                Text(story.souvenir.icon, fontSize = 48.sp)
+                Text("${story.souvenir.label} (in the bag)", fontWeight = FontWeight.Bold)
+                Text("+${trip.treats} 🐟", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+            }
+        },
+        confirmButton = { TextButton(onClose) { Text("Yay! 💞") } },
+    )
 }
 
 // --- the scene: sky by time of day, sun / moon, hills, grass, flowers -------------
 @Composable
-private fun Scene(now: Calendar, night: Boolean, modifier: Modifier) {
+private fun Scene(now: Calendar, night: Boolean, modifier: Modifier, away: Boolean = false, decor: Set<String> = emptySet()) {
     val hour = now.get(Calendar.HOUR_OF_DAY)
     val dark = night || hour < 6 || hour >= 21
     val dusk = !dark && hour >= 17
@@ -230,6 +273,49 @@ private fun Scene(now: Calendar, night: Boolean, modifier: Modifier) {
             drawRect(c, Offset(fx, fy - px * 2), Size(px, px * 3))
             drawRect(Color(0xFFFFF6D5), Offset(fx, fy - px), Size(px, px))
         }
+        // garden decorations from the bag
+        if ("pond" in decor) {
+            drawOval(Color(0xFF4A90C8), Offset(w * 0.02f, ground + h * 0.08f), Size(w * 0.24f, h * 0.09f))
+            drawOval(Color(0xFF7CC0EA), Offset(w * 0.05f, ground + h * 0.095f), Size(w * 0.16f, h * 0.045f))
+            drawCircle(Color(0xFFFFD23F), w * 0.016f, Offset(w * 0.15f, ground + h * 0.11f)) // a duck
+            drawRect(Color(0xFFE8913A), Offset(w * 0.163f, ground + h * 0.108f), Size(w * 0.012f, w * 0.006f))
+        }
+        if ("plant" in decor) {
+            val bx = w * 0.84f
+            drawRect(Color(0xFFC86E3A), Offset(bx, ground - h * 0.02f), Size(w * 0.09f, h * 0.08f))
+            drawRect(Color(0xFFA85A2E), Offset(bx - w * 0.01f, ground - h * 0.03f), Size(w * 0.11f, h * 0.022f))
+            for ((dx, dy, r) in listOf(Triple(0.045f, -0.08f, 0.05f), Triple(0.0f, -0.1f, 0.035f), Triple(0.09f, -0.11f, 0.04f), Triple(0.045f, -0.15f, 0.04f))) {
+                drawCircle(Color(0xFF5FAE5A), w * r, Offset(bx + w * dx, ground + h * dy))
+            }
+        }
+        if ("feeder" in decor) {
+            val fx = w * 0.07f
+            drawRect(Color(0xFF8A6A4A), Offset(fx, ground - h * 0.3f), Size(w * 0.014f, h * 0.3f))
+            drawPath(Path().apply { moveTo(fx - w * 0.06f, ground - h * 0.3f); lineTo(fx + w * 0.007f, ground - h * 0.38f); lineTo(fx + w * 0.074f, ground - h * 0.3f); close() }, Color(0xFFD6457A))
+            drawRect(Color(0xFFF3D7A6), Offset(fx - w * 0.045f, ground - h * 0.3f), Size(w * 0.104f, h * 0.06f))
+            drawCircle(Color(0xFF5FB4E8), w * 0.018f, Offset(fx + w * 0.03f, ground - h * 0.4f)) // a little bird
+            drawCircle(Color(0xFF5FB4E8), w * 0.012f, Offset(fx + w * 0.048f, ground - h * 0.41f))
+        }
+        if ("lights" in decor) {
+            val bulbs = listOf(Color(0xFFFF5FA2), Color(0xFFFFD23F), Color(0xFF5FD3FF), Color(0xFFB07BFF), Color(0xFF7DFF8A))
+            val path = Path().apply { moveTo(0f, h * 0.04f); quadraticTo(w * 0.5f, h * 0.2f, w, h * 0.04f) }
+            drawPath(path, Color(0xFF3B2F2F).copy(alpha = 0.5f), style = Stroke(width = w * 0.004f))
+            for (i in 1 until 12) {
+                val t = i / 12f
+                val x = w * t
+                val y = (1 - t) * (1 - t) * h * 0.04f + 2 * (1 - t) * t * h * 0.2f + t * t * h * 0.04f
+                drawCircle(bulbs[i % bulbs.size], w * 0.012f, Offset(x, y + w * 0.012f))
+            }
+        }
+        if (away) { // her paw prints, off towards the garden
+            val paw = if (dark) Color(0xFF2A4038) else Color(0xFF5E9E52)
+            for (i in 0 until 6) {
+                val x = w * (0.34f + i * 0.1f)
+                val y = ground + h * (0.1f + (if (i % 2 == 0) 0.03f else 0f))
+                drawCircle(paw, w * 0.012f, Offset(x, y))
+                for (t in -1..1) drawCircle(paw, w * 0.005f, Offset(x + t * w * 0.011f, y - w * 0.016f))
+            }
+        }
     }
 }
 
@@ -248,19 +334,38 @@ private fun SpeechBubble(b: Bubble, modifier: Modifier) {
     }
 }
 
-/** Today's sips toward her exploring trip (step 5 sends her out at the end of the bar). */
+/** Today's sips toward her trip, then: send her out, the countdown, welcome her home. */
 @Composable
-private fun EnergyBar(ui: HomeUi, name: String) {
-    val p by animateFloatAsState(ui.adventureProgress, tween(700, easing = FastOutSlowInEasing), label = "energy")
-    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun AdventurePanel(ui: HomeUi, adv: Adventures.Status, me: CatProfile, onSend: () -> Unit, onWelcome: (Adventures.Trip) -> Unit) {
+    val target = when (adv) { is Adventures.Status.Away -> adv.progress; Adventures.Status.NotEnoughEnergy -> ui.adventureProgress; else -> 1f }
+    val p by animateFloatAsState(target, tween(700, easing = FastOutSlowInEasing), label = "energy")
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("💧 Energy", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            Text("${ui.wallet.sipsToday.coerceAtMost(GameRules.ADVENTURE_SIPS)} / ${GameRules.ADVENTURE_SIPS} sips", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            Text(if (adv is Adventures.Status.Away) "🐾 Exploring" else "💧 Energy", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(
+                when (adv) {
+                    is Adventures.Status.Away -> "back in ${Adventures.countdown(adv.remainingMs)}"
+                    else -> "${ui.wallet.sipsToday.coerceAtMost(GameRules.ADVENTURE_SIPS)} / ${GameRules.ADVENTURE_SIPS} sips"
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+            )
         }
         LinearProgressIndicator(progress = { p }, Modifier.fillMaxWidth().height(12.dp).clip(RoundedCornerShape(6.dp)),
-            color = Color(0xFF5FB4E8), trackColor = MaterialTheme.colorScheme.surfaceVariant, drawStopIndicator = {})
-        Text(if (p >= 1f) "$name has the energy for an adventure! (exploring arrives in the next update)" else "Goals and glasses give sips. A full bar and $name goes exploring.",
-            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            color = if (adv is Adventures.Status.Away) MaterialTheme.colorScheme.tertiary else Color(0xFF5FB4E8),
+            trackColor = MaterialTheme.colorScheme.surfaceVariant, drawStopIndicator = {})
+        when (adv) {
+            Adventures.Status.NotEnoughEnergy -> Text("Goals and glasses give sips. A full bar and ${me.name} goes exploring.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Adventures.Status.Ready -> androidx.compose.material3.Button(onSend, Modifier.fillMaxWidth().height(52.dp), shape = MaterialTheme.shapes.large) {
+                Text("🧺  Send ${me.name} exploring", fontSize = 17.sp)
+            }
+            is Adventures.Status.Away -> Text("${me.name} is out in the garden. The timer keeps going even with the app closed, and you'll get a notification.",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Adventures.Status.Back -> androidx.compose.material3.Button({ ui.trip?.let(onWelcome) }, Modifier.fillMaxWidth().height(52.dp), shape = MaterialTheme.shapes.large,
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)) {
+                Text("🎒  ${me.name} is back! Welcome home", fontSize = 17.sp)
+            }
+            Adventures.Status.DoneToday -> Text("Today's adventure is done. More garden tomorrow 🌙", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
