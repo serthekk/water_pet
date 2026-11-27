@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('settingsApi', {
   testMeow: (style) => ipcRenderer.send('settings:test-meow', style),
   openSoundsFolder: () => ipcRenderer.invoke('settings:open-sounds-folder'),
   testAlarm: (id) => ipcRenderer.invoke('settings:test-alarm', id),
+  syncInfo: () => ipcRenderer.invoke('settings:sync-info'),
+  syncNewCode: () => ipcRenderer.invoke('settings:sync-new-code'),
+  syncForget: (id) => ipcRenderer.invoke('settings:sync-forget', id),
+  onSyncChanged: (cb) => ipcRenderer.on('settings:sync-changed', (_e, info) => cb(info)),
   restart: () => ipcRenderer.invoke('settings:restart'),
   openCustomize: () => ipcRenderer.invoke('settings:open-customize'),
   // quick-action toolbar: customize | test-reminder | sleep | hide | notes | restart

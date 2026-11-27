@@ -118,6 +118,24 @@
       </div>
     </section>
 
+    <section class="card" id="sync-card">
+      <h2>📱 Phone sync <i class="tip-host">?<span class="tip">The WaterCat Android app reminds you and rings your alarms on your phone. With this on, it syncs cups, goal, reminders, quiet hours and alarms with this computer over your Wi-Fi.</span></i></h2>
+      <label class="check"><input id="phoneSync" type="checkbox"> Sync with my phone over Wi-Fi</label>
+      <div id="sync-details" hidden>
+        <p class="hint" id="sync-status"></p>
+        <div class="field">
+          <label>Pairing code <i class="tip-host">?<span class="tip">Type this in the phone app (Sync → Pair). A new code doesn't unpair phones that are already paired.</span></i></label>
+          <div class="inline"><strong id="sync-code" class="sync-code"></strong> <button id="sync-new-code" type="button">New code</button></div>
+        </div>
+        <div class="field">
+          <label>This computer <i class="tip-host">?<span class="tip">The phone finds the computer by itself on the same Wi-Fi. If it can't, type one of these addresses in the phone app.</span></i></label>
+          <span id="sync-addr" class="sync-addr"></span>
+        </div>
+        <div id="sync-devices"></div>
+        <p class="hint">Phone and computer need the same Wi-Fi. If Windows asks, allow WaterCat on <b>private</b> networks.</p>
+      </div>
+    </section>
+
     <section class="card">
       <h2>⚙ App</h2>
       <label class="check"><input id="startWithWindows" type="checkbox"> Start with Windows</label>

@@ -87,6 +87,7 @@ app.on('window-all-closed', () => log('window-all-closed (ignored)'));
 
 app.on('before-quit', () => {
   quitting = true;
+  if (phoneSync) phoneSync.stop();
   log('before-quit');
 });
 
@@ -154,6 +155,7 @@ const DEFAULT_SETTINGS = {
   cupChirp: true, // Stage 4: a logged drink plays a short happy chirp (off: the click meows, other cups are silent)
   drinkWord: '', // her own counter word ('' = the drink's own: cups, BOOCHES, bobas)
   customTheme: { bg: '#fff6ea', card: '#ffffff', ink: '#3b2f2f', accent: '#b4621c', hover: '#f4a6b8', check: '#e8913a' }, // her own 6 colours
+  phoneSync: false, // Wi-Fi sync with the WaterCat Android app (sync.js); off = nothing listens on the network
   position: null,
 };
 
@@ -515,7 +517,7 @@ function sanitizeSettings(raw, base = DEFAULT_SETTINGS) {
     const list = raw.customPresets.map((p) => p && sanitizeCustomPreset(p)).filter(Boolean);
     if (list.length === raw.customPresets.length) s.customPresets = list;
   }
-  for (const k of ['unlockAllItems', 'kittenEnabled', 'seasonalOutfits', 'moodEnabled', 'rotateReminders', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
+  for (const k of ['unlockAllItems', 'kittenEnabled', 'seasonalOutfits', 'moodEnabled', 'rotateReminders', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'autoUpdate', 'phoneSync', 'tail', 'idleSleepEnabled', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'mouseResize', 'soundEnabled', 'firstRunDone']) if (typeof raw[k] === 'boolean') s[k] = raw[k];
   // older files: sleepWhenIdle / sleepAfterMinutes (old default 10 -> new default 15)
   if (typeof raw.idleSleepEnabled !== 'boolean' && typeof raw.sleepWhenIdle === 'boolean') s.idleSleepEnabled = raw.sleepWhenIdle;
   if (raw.idleSleepMinutes === undefined && Number.isInteger(raw.sleepAfterMinutes) && raw.sleepAfterMinutes !== 10) raw = { ...raw, idleSleepMinutes: Math.min(120, raw.sleepAfterMinutes) };
@@ -1072,7 +1074,7 @@ function saveSettings() {
 const EDITABLE = ['goalCups', 'reminderMinutes', 'repeatMinutes', 'volume', 'quietStart', 'quietEnd', 'startWithWindows', 'meowStyle',
   'breed', 'tail', 'idleSleepEnabled', 'idleSleepMinutes', 'quietSleepEnabled', 'systemIdleSleep', 'idleAnimations', 'chaseMouse', 'catSize', 'mouseResize', 'alarms', 'soundEnabled', 'catName', 'catDescriptor',
   'colors', 'whiskersEnabled', 'furPattern', 'earStyle', 'fluffy', 'tufts', 'customPresets', 'catGender', 'sleepSpot', 'sleepSpotColors', 'accessories', 'catDefaultPreset', 'catDescriptionCustom', 'catDescriptionSource', 'catLookLocked',
-  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'reminderMessages', 'rotateReminders', 'meowCapMinutes', 'remindersPausedUntil', 'moodEnabled', 'seasonalOutfits', 'unlockAllItems', 'kittenEnabled', 'playStopPos'];
+  'autoUpdate', 'updateChannel', 'theme', 'customTheme', 'drink', 'drinkWord', 'cupChirp', 'eyesFollow', 'taskbarWalk', 'reminderMessages', 'rotateReminders', 'meowCapMinutes', 'remindersPausedUntil', 'moodEnabled', 'seasonalOutfits', 'unlockAllItems', 'kittenEnabled', 'playStopPos', 'phoneSync'];
 
 // For the Settings toolbar (Sleep / Wake, Hide / Show).
 function catState() {
@@ -1155,6 +1157,8 @@ function applySettings(partial) {
   if (!changed.length) return publicSettings();
   saveSettings();
   log(`settings changed: ${changed.map((k) => `${k}=${JSON.stringify(settings[k])}`).join(', ')}`);
+  if (phoneSync) phoneSync.noteLocalChange(changed); // newest change wins when a phone syncs
+  if (changed.includes('phoneSync')) applyPhoneSync();
   if (changed.includes('reminderMinutes')) resetReminderTimer();
   if (changed.includes('repeatMinutes') && nagging) nagging.nextAt = Date.now() + settings.repeatMinutes * 60000;
   if (changed.includes('idleSleepEnabled') && !settings.idleSleepEnabled && behavior.sleepReason === 'idle') wakeUp('idle sleep turned off');
@@ -2047,6 +2051,86 @@ function endReminder(reason) {
   nagging = null;
   refreshBubble(reason);
   updateTrayMenu();
+}
+
+// --- Phone sync over Wi-Fi (sync.js, the WaterCat Android app) --------------------
+// Off by default. The phone reports its own cups per day (added here as the difference
+// since its last sync) and the newest change of goal / reminder / quiet hours / alarms /
+// pause wins. Not started in the selftest (no network listeners there).
+let phoneSync = null;
+function initPhoneSync() {
+  if (SELFTEST) return;
+  phoneSync = require('./sync.js').create({
+    dataDir: dataDir(),
+    log,
+    version: app.getVersion(),
+    hooks: {
+      name: () => `${settings.catName} on ${require('os').hostname()}`.slice(0, 40),
+      snapshot: phoneSyncSnapshot,
+      applySettings: (partial) => applySettings(partial),
+      applyCups: addCupsFromPhone,
+    },
+  });
+  phoneSync.onChange(() => {
+    if (settingsWin && !settingsWin.isDestroyed()) settingsWin.webContents.send('settings:sync-changed', phoneSyncInfo());
+  });
+  applyPhoneSync();
+}
+function applyPhoneSync() {
+  if (!phoneSync) return;
+  if (settings.phoneSync) phoneSync.start();
+  else phoneSync.stop();
+}
+const phoneSyncInfo = () => (phoneSync ? { available: true, enabled: settings.phoneSync, ...phoneSync.info() } : { available: false, enabled: settings.phoneSync });
+
+function phoneSyncSnapshot() {
+  checkDayRollover();
+  const out = {};
+  for (const k of require('./sync.js').SYNC_FIELDS) out[k] = settings[k];
+  const totals = {};
+  const goals = {};
+  const today = todayKey();
+  for (let i = 0; i < 60; i++) {
+    const k = addDays(today, -i);
+    const d = k === today ? { cups: day.cups, goal: settings.goalCups } : history.days[k];
+    if (d) { totals[k] = d.cups; goals[k] = d.goal; }
+  }
+  return { settings: out, totals, goals, streak: streak(), best: Math.max(history.bestStreak, streak()), catName: settings.catName, drinkWord: drinkWord() };
+}
+
+// Cups logged on the phone. Today: like a cup logged here (reminder ends, party, streak,
+// unlocks, treat) but without the pet animation; an undo on the phone takes them off again.
+// Earlier days: only that day's history entry changes.
+function addCupsFromPhone(date, delta) {
+  checkDayRollover();
+  if (!DAY_KEY_RE.test(date) || !Number.isInteger(delta) || !delta) return;
+  if (date === day.date) {
+    const prevBest = history.bestStreak;
+    undoReset = null;
+    day.cups = Math.max(0, day.cups + delta);
+    saveCups();
+    log(`PHONE CUPS ${delta > 0 ? '+' : ''}${delta} -> ${day.cups}/${settings.goalCups}`);
+    if (delta > 0) {
+      markActive('cup');
+      resetReminderTimer();
+      pushState({ added: true, source: 'phone', hop: true });
+      endReminder('cup logged on the phone');
+      if (day.cups >= settings.goalCups && day.partyShownDate !== day.date) startParty('goal');
+      maybeCelebrateStreak();
+      checkUnlocks('phone');
+      maybeTreat(prevBest);
+    } else pushState();
+    return;
+  }
+  if (date > day.date) return;
+  const d = history.days[date] || { cups: 0, goal: settings.goalCups, pets: 0 };
+  d.cups = Math.max(0, d.cups + delta);
+  history.days[date] = d;
+  history.bestStreak = Math.max(history.bestStreak, streak());
+  writeJsonSafe(historyFile(), history);
+  log(`PHONE CUPS ${delta > 0 ? '+' : ''}${delta} on ${date} -> ${d.cups}/${d.goal}`);
+  checkUnlocks('phone', { quiet: true });
+  pushState();
 }
 
 // --- Alarms (e.g. 22:00 "Pillbrotchen time my dear") ---------------------------
@@ -3726,6 +3810,9 @@ function registerIpc() {
     const s = meowIds().includes(style) ? style : settings.meowStyle;
     if (win && !win.isDestroyed()) win.webContents.send('play-meow', { volume: settings.volume, style: s });
   });
+  ipcMain.handle('settings:sync-info', () => phoneSyncInfo());
+  ipcMain.handle('settings:sync-new-code', () => (phoneSync ? phoneSync.newCode() : null) && phoneSyncInfo());
+  ipcMain.handle('settings:sync-forget', (_e, id) => (phoneSync ? phoneSync.forget(String(id)) : null) && phoneSyncInfo());
   ipcMain.handle('settings:test-alarm', (_e, id) => testAlarm(String(id)));
   ipcMain.handle('settings:open-customize', () => { openCustomize(); return true; });
   // Settings' quick-action toolbar
@@ -6832,6 +6919,7 @@ app.whenReady().then(() => {
     loadCups();
     loadHistory(); // Stage 9: per-day history (streaks, Stats)
     loadAlarmState();
+    initPhoneSync();
     registerIpc();
     createWindow();
     createTray();
