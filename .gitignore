@@ -14,6 +14,7 @@ settings.backup.json
 settings.*.json
 cups.json
 alarms.json
+sync.json
 appdata-*.json
 
 # secrets

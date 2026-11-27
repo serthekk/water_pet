@@ -16,7 +16,7 @@
     "selftest": "electron . --selftest",
     "sprite": "node render_sprite.js",
     "meows": "node make_meows.js",
-    "check": "node --check main.js && node --check preload.js && node --check renderer.js && node --check catsprite.js && node --check render_sprite.js",
+    "check": "node --check main.js && node --check sync.js && node --check preload.js && node --check renderer.js && node --check catsprite.js && node --check render_sprite.js",
     "build": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always",
     "version:patch": "npm version patch -m \"Release v%s\"",
@@ -34,6 +34,7 @@
     "files": [
       "main.js",
       "updater.js",
+      "sync.js",
       "fullscreen.js",
       "preload.js",
       "renderer.js",

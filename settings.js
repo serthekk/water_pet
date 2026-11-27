@@ -368,6 +368,7 @@
     $('quietStart').value = s.quietStart;
     $('quietEnd').value = s.quietEnd;
     $('startWithWindows').checked = s.startWithWindows;
+    $('phoneSync').checked = !!s.phoneSync;
     $('login-hint').hidden = s.packaged;
   }
 
@@ -437,6 +438,58 @@
     const ok = await api.openSoundsFolder();
     if (!ok) showStatus('Could not open the folder', true);
   });
+  // Phone sync (sync.js): code, addresses, paired phones.
+  const ago = (t) => {
+    if (!t) return 'never synced';
+    const m = Math.round((Date.now() - t) / 60000);
+    if (m < 1) return 'synced just now';
+    if (m < 60) return `synced ${m} min ago`;
+    const h = Math.round(m / 60);
+    return h < 48 ? `synced ${h} h ago` : `synced ${new Date(t).toLocaleDateString()}`;
+  };
+  function fillSync(info) {
+    if (!info) return;
+    $('phoneSync').checked = !!info.enabled;
+    $('sync-details').hidden = !info.enabled;
+    if (!info.enabled) return;
+    const onOther = info.networkChecked && !info.atHome;
+    $('sync-status').textContent = !info.available ? 'Sync is not available in this mode.'
+      : info.error ? `⚠ ${info.error}`
+        : onOther ? (info.networks ? `⏸ Paused: this isn't your home network (${info.networks.join(', ') || 'no network'}). Your phone keeps its cups until you're both home.` : "⏸ Paused: couldn't check which network this is.")
+          : info.running ? '✅ Waiting for your phone on this Wi-Fi.' : 'Starting…';
+    $('sync-home').textContent = info.homeNetwork || (info.networkChecked ? 'Any (network names not available)' : '…');
+    $('sync-use-this').hidden = !(onOther && info.networks && info.networks.length);
+    $('sync-code').textContent = info.code ? `${info.code.slice(0, 3)} ${info.code.slice(3)}` : '—';
+    $('sync-addr').textContent = (info.addresses || []).length ? info.addresses.map((a) => `${a}:${info.port}`).join(', ') : 'Not connected to a network';
+    const box = $('sync-devices');
+    box.replaceChildren();
+    for (const d of info.devices || []) {
+      const row = document.createElement('div');
+      row.className = 'sync-device';
+      const label = document.createElement('span');
+      label.textContent = `📱 ${d.name} · ${ago(d.lastSync)}`;
+      const forget = document.createElement('button');
+      forget.type = 'button';
+      forget.className = 'link';
+      forget.textContent = 'Forget';
+      forget.addEventListener('click', async () => fillSync(await api.syncForget(d.id)));
+      row.append(label, forget);
+      box.appendChild(row);
+    }
+  }
+  $('phoneSync').addEventListener('change', async (e) => {
+    await save({ phoneSync: e.target.checked });
+    setTimeout(async () => fillSync(await api.syncInfo()), 300);
+  });
+  $('sync-new-code').addEventListener('click', async () => fillSync(await api.syncNewCode()));
+  $('sync-use-this').addEventListener('click', async () => {
+    if (!window.confirm('Make the network this computer is on now your home network? Phones will only sync on it from now on.')) return;
+    fillSync(await api.syncUseThisNetwork());
+  });
+  api.onSyncChanged((info) => fillSync(info));
+  api.syncInfo().then(fillSync);
+  setInterval(async () => { if (!$('sync-details').hidden) fillSync(await api.syncInfo()); }, 30000);
+
   // Changed elsewhere (sounds folder, right-click "Chase the mouse") -> show the stored values.
   api.onChanged((s) => fill(s));
 

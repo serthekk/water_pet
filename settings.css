@@ -224,3 +224,10 @@ footer { display: flex; align-items: center; justify-content: space-between; mar
 ::-webkit-scrollbar-track { background: transparent; }
 
 .field.stack { grid-template-columns: 1fr; }
+
+/* Phone sync */
+.sync-code { font-size: 1.25em; letter-spacing: 0.12em; font-variant-numeric: tabular-nums; }
+.sync-addr { user-select: text; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.sync-device { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 0; }
+#sync-details { display: grid; gap: 6px; }
+#sync-details[hidden] { display: none; }

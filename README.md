@@ -33,6 +33,15 @@ across updates and even when you uninstall.
 - Idle animations, optional mouse chasing, adjustable size, your own meow sounds.
 - Starts with Windows; one instance only; everything can be turned off in Settings.
 
+## Phone app (Android)
+
+WaterCat has an Android companion: water reminders as notifications ("💧 I drank!" logs a
+cup from the notification), real alarm-clock alarms (full screen, ring until stopped) and
+**Wi-Fi sync** of cups, goal, reminders, quiet hours, alarms and your cat with this app, on
+your home network only. Turn it on at home in **Settings → 📱 Phone sync** and pair the phone with the
+code shown there. See
+[android/README.md](android/README.md).
+
 ## Controls
 
 | Action | What it does |
