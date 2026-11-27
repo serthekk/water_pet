@@ -63,6 +63,29 @@ Settings → Phone sync shows **Use this network** while it's on a different one
   per field (corrected for clock differences); the newer one wins.
 - UDP 47824 is used to find the computer on the Wi-Fi.
 
+## Work on it from a terminal (Windows)
+
+Give the Android app its own folder next to your desktop checkout, so you can build and
+test it without switching branches in your main `water_pet` folder (a git worktree: same
+repository, second folder):
+
+```powershell
+cd C:\path\to\water_pet
+git fetch origin
+git worktree add ..\watercat-android claude/android-water-pet-companion-5joy9a
+cd ..\watercat-android\android
+.\dev.ps1 setup      # finds the JDK + Android SDK, writes local.properties, lists phones
+.\dev.ps1 test       # unit tests
+.\dev.ps1 run        # build, install on the phone / emulator, start
+.\dev.ps1 logs       # what the app is doing (sound, sync, alarms)
+```
+
+`.\dev.ps1` alone lists every command. Needs Android Studio once (it brings the SDK and a
+JDK; for an emulator: Device Manager → create a Pixel). For a phone: Developer options →
+USB debugging. You can start a Claude Code session in that folder too (`claude`).
+
+When the branch is merged: `git worktree remove ..\watercat-android`.
+
 ## Build
 
 Needs JDK 17+ and the Android SDK (platform 35). Android Studio: open the `android/`
