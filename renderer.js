@@ -336,7 +336,7 @@
     groom: [...Array.from({ length: 10 }, (_, i) => ['groom', i % 2 ? 'b' : 'a', 260]), ['sit', 'blink', 180]],
     look: [['sit', 'sit', 800, { lookDx: -1 }], ['sit', 'blink', 140, { lookDx: -1 }], ['sit', 'sit', 900, { lookDx: 1 }], ['sit', 'sit', 500, { lookDx: 0 }]],
     // Stage 10
-    knead: Array.from({ length: 10 }, (_, i) => ['knead', i % 2 ? 'b' : 'a', 320]),
+    knead: Array.from({ length: 32 }, (_, i) => ['knead', i % 2 ? 'b' : 'a', 320]), // ~10 s
     chomp: [['yawn', 'yawn', 150], ['sit', 'squint', 150], ['yawn', 'yawn', 150], ['sit', 'squint', 150], ['yawn', 'yawn', 150], ['sit', 'squint', 900]],
     tailcurl: [['sit', 'wag', 600], ['sit', 'sit', 450], ['sit', 'wag', 900], ['sit', 'sit', 300], ['sit', 'wag', 400], ['sit', 'sit', 200]],
   };
@@ -345,12 +345,32 @@
     if (name === 'sleep-enter') steps = enterSteps(a.spot);
     if (name === 'wake') steps = wakeSteps(a.spot);
     if (name === 'peek') steps = peekSteps(a.lookDx || 0);
+    if (name === 'knead-stop') return stopKnead('main');
     if (name === 'knead') steps = ANIMS.knead.map(([p, f, ms]) => [p, f, ms, { kneadProp: a.prop === 'dough' ? 'dough' : 'blanket' }]); // Stage 10: a blanket or dough
     if (!steps) return;
+    if (anim === 'knead' && name !== 'knead') stopKneadPurr(); // something else takes over
     anim = name;
-    api.report('anim', { name, spot: a.spot });
-    if (name === 'knead') purrFor(3.2, true); // making biscuits: a soft purr
+    api.report('anim', { name, spot: a.spot, forever: !!a.forever });
+    if (name === 'knead') {
+      // making biscuits: a soft purr all along; asked for from the menu = until she's stopped
+      stopKneadPurr();
+      purrFor(a.forever ? 4 : 10.2, true);
+      if (a.forever) kneadPurr = setInterval(() => { if (anim === 'knead') purrFor(4, true); else stopKneadPurr(); }, 3000);
+      return sequence(steps, !a.forever);
+    }
     sequence(steps, true);
+  }
+  let kneadPurr = null;
+  function stopKneadPurr() {
+    clearInterval(kneadPurr);
+    kneadPurr = null;
+  }
+  function stopKnead(why) {
+    stopKneadPurr();
+    if (anim !== 'knead') return;
+    anim = null;
+    api.report('anim-done', { name: 'knead', why });
+    runBase();
   }
 
   function hop() {
@@ -1040,6 +1060,8 @@
     base = { pose: p.pose, facing: p.facing === -1 ? -1 : 1, spot: p.spot || null };
     // walking interrupts a one-shot; going to sleep lets the "sleep-enter" animation finish
     if (anim && p.pose === 'walk') { anim = null; }
+    if (anim === 'knead' && p.pose !== 'sit') stopKneadPurr(); // sleep / walk end the kneading
+    if (anim === 'knead' && p.pose !== 'sit') anim = null;
     runBase();
   });
   api.onAnim((a) => playAnim(a.name, a));

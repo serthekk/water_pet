@@ -1286,6 +1286,7 @@ function pushState(extra = {}) {
 let undoReset = null; // { date, cups }
 
 function addCup(source) {
+  stopKneading('drink'); // a click / a drink ends the kneading
   checkDayRollover();
   const prevBest = history.bestStreak; // Stage 10: a new best streak earns a treat
   markActive('cup');
@@ -1365,7 +1366,8 @@ function pet(kind, source) {
   // (while she plays, the play overlay shows the hearts itself; the desktop cat is hidden)
   if (win && !win.isDestroyed() && !playWin) win.webContents.send('petted', { kind, quiet: isQuietNow() || wasAsleep, petsToday: pc.today, chirp: settings.cupChirp });
   pushState();
-  if (kind === 'stroke' && !playing()) maybeKnead();
+  if ((kind === 'stroke' || kind === 'boop') && behavior.kneading === 'forever') stopKneading('petted');
+  else if (kind === 'stroke' && !playing()) maybeKnead();
   return { ok: true, petsToday: pc.today };
 }
 
@@ -1523,7 +1525,17 @@ function eatTreat(source) {
 // biscuits for a few seconds (paws in turn, eyes squinted, a soft purr).
 let KNEAD_CHANCE = 0.6;
 const KNEAD_PROPS = ['blanket', 'dough'];
-function maybeKnead(force, prop) {
+// behavior.kneading: null | 'timed' (~10 s, on her own) | 'forever' (asked from the menu: until stopped)
+function stopKneading(reason) {
+  if (!behavior.kneading) return false;
+  behavior.kneading = null;
+  clearTimeout(behavior.kneadTimer);
+  if (win && !win.isDestroyed()) win.webContents.send('anim', { name: 'knead-stop' });
+  log(`kneading stopped (${reason})`);
+  updateTrayMenu();
+  return true;
+}
+function maybeKnead(force, prop, forever) {
   const now = Date.now();
   behavior.strokePets = (behavior.strokePets || []).filter((t) => now - t < 120000);
   const relaxed = behavior.state !== 'sleeping' && !nagging && !activeAlarm && !partyActive && !playing() && !stroll;
@@ -1532,8 +1544,14 @@ function maybeKnead(force, prop) {
   behavior.strokePets = [];
   // after the belly-up of the pet that started it
   const what = KNEAD_PROPS.includes(prop) ? prop : KNEAD_PROPS[Math.floor(Math.random() * KNEAD_PROPS.length)];
-  setTimeout(() => { if (behavior.state !== 'sleeping') sendAnim('knead', { prop: what }); }, force ? 0 : 3300);
-  log(`KNEADING a ${what}`);
+  setTimeout(() => {
+    if (behavior.state === 'sleeping') return;
+    behavior.kneading = forever ? 'forever' : 'timed';
+    clearTimeout(behavior.kneadTimer);
+    if (!forever) behavior.kneadTimer = setTimeout(() => { if (behavior.kneading === 'timed') behavior.kneading = null; }, 10500);
+    sendAnim('knead', { prop: what, forever: !!forever });
+  }, force ? 0 : 3300);
+  log(`KNEADING a ${what}${forever ? ' (until she is stopped)' : ' (~10 s)'}`);
   return true;
 }
 
@@ -1725,6 +1743,7 @@ function playPoll() {
 const catCanvasLeft = () => Math.round((WIN_W - CatSprites.CANVAS.cols * settings.catSize) / 2);
 
 function startPlay(toy, source) {
+  stopKneading('play');
   if (!PLAY_TOYS.some(([id]) => id === toy)) toy = 'ball';
   if (playWin) {
     log(`play: switching toy to ${toy}`);
@@ -1861,6 +1880,7 @@ const hatOn = () => !!partyActive || (day.partyShownDate === todayKey() && !wear
 
 async function startParty(source) {
   checkDayRollover();
+  stopKneading('party');
   if (playing()) await stopPlay('party'); // the party is on the desktop cat
   if (source !== 'test' && day.partyShownDate !== day.date) {
     day.partyShownDate = day.date;
@@ -2026,6 +2046,7 @@ function ringSoon(why) {
 }
 
 function fireReminder(reason) {
+  stopKneading('reminder');
   if (playing()) stopPlay('reminder'); // Stage 6: she comes back to show it
   const asleep = behavior.state === 'sleeping';
   if (!asleep) markActive('reminder');
@@ -2100,6 +2121,7 @@ function startAlarm(a, why) {
 
 function ringAlarm(reason) {
   if (!activeAlarm) return;
+  stopKneading('alarm');
   if (playing()) stopPlay('alarm');
   activeAlarm.nextAt = Date.now() + settings.repeatMinutes * 60000;
   log(`ALARM "${activeAlarm.text}" (${reason}) repeat #${activeAlarm.repeats}`);
@@ -2399,6 +2421,7 @@ function chooseSpot() {
 
 // opts: { spot (force a spot), slide: false (stay where she is, e.g. preview) }
 function goToSleep(reason, opts = {}) {
+  stopKneading('sleep');
   if (behavior.state === 'sleeping' || !win || win.isDestroyed() || !win.isVisible() || drag) return false;
   const spot = opts.spot || chooseSpot();
   const b = win.getBounds();
@@ -2480,6 +2503,11 @@ function behaviorTick() {
       return;
     }
     // awake
+    // kneading (asked for from the menu: until she's stopped) keeps her awake and busy
+    if (behavior.kneading) {
+      behavior.lastActive = now;
+      return;
+    }
     if (settings.quietSleepEnabled && quiet && now - behavior.lastActive > QUIET_RESLEEP_MS) return goToSleep('quiet hours');
     if (settings.idleSleepEnabled && now - behavior.lastActive > settings.idleSleepMinutes * 60000) return goToSleep('idle');
     if (settings.systemIdleSleep && settings.idleSleepEnabled) {
@@ -3449,7 +3477,7 @@ function buildContextMenu() {
     ...pauseMenuItems('menu'),
     partyActive ? { label: 'Stop the party', click: () => endParty('menu') } : { label: 'Test party 🎉', click: () => startParty('test') },
     playMenu('menu'),
-    { label: 'Knead a blanket or some dough 🍞', click: () => maybeKnead(true) },
+    behavior.kneading === 'forever' ? { label: 'Stop kneading', click: () => stopKneading('menu') } : { label: 'Knead a blanket or some dough 🍞', click: () => maybeKnead(true, undefined, true) },
     ...(activeAlarm ? [{ label: 'Dismiss alarm', click: () => dismissAlarm('menu') }] : []),
     ...(nagging ? [{ label: 'Dismiss reminder', click: () => dismissReminder('menu') }] : []),
     { type: 'separator' },
@@ -4513,7 +4541,24 @@ async function runSelftest() {
       const kneadAnim = reports.find((r) => r.type === 'anim' && r.data.name === 'knead');
       record('Stage 10: lots of petting -> she makes biscuits (knead anim + soft purr), not again for a while', kn && !!kneadAnim && reports.some((r) => r.type === 'purr')
         && !maybeKnead(), `knead=${kn} anim=${!!kneadAnim}`);
-      const blanket = CatSprites.renderScene({ pose: 'knead', frame: 'a', facing: 1, look: {}, kneadProp: 'blanket' }).over.flat().filter((c) => c === CatSprites.KNEAD_PROPS.blanket.colors.a).length;
+      // asked for from the menu: she kneads until she's stopped ("Stop kneading", a drink, a pet...)
+      stopKneading('selftest');
+      await sleep(300);
+      clearReports();
+      buildContextMenu().items.find((i) => i.label === 'Knead a blanket or some dough 🍞').click();
+      const kf = await waitFor((r) => r.type === 'anim' && r.data.name === 'knead' && r.data.forever, 2000);
+      await sleep(11500); // longer than the ~10 s kneading she does on her own
+      const stillKneading = behavior.kneading === 'forever' && !reports.some((r) => r.type === 'anim-done' && r.data.name === 'knead');
+      const stopItem = buildContextMenu().items.find((i) => i.label === 'Stop kneading');
+      if (stopItem) stopItem.click();
+      const stopped = await waitFor((r) => r.type === 'anim-done' && r.data.name === 'knead', 2000);
+      maybeKnead(true, 'dough', true);
+      await sleep(300);
+      addCup('selftest');
+      const byDrink = !behavior.kneading;
+      undoCup('selftest');
+      record('Stage 10: menu kneading goes on until she is stopped (still kneading after 11 s); "Stop kneading" / a drink stop it', !!kf && stillKneading && !!stopItem && !!stopped && byDrink,
+        `forever=${!!kf} still=${stillKneading} stopItem=${!!stopItem} stopped=${!!stopped} drink=${byDrink}`);      const blanket = CatSprites.renderScene({ pose: 'knead', frame: 'a', facing: 1, look: {}, kneadProp: 'blanket' }).over.flat().filter((c) => c === CatSprites.KNEAD_PROPS.blanket.colors.a).length;
       const dough = CatSprites.renderScene({ pose: 'knead', frame: 'b', facing: 1, look: {}, kneadProp: 'dough' }).over.flat().filter((c) => c === CatSprites.KNEAD_PROPS.dough.colors.d).length;
       record('Stage 10: she kneads a blanket or bread dough (drawn under her paws); menu "Knead a blanket or some dough 🍞"', blanket > 10 && dough > 10
         && buildContextMenu().items.some((i) => i.label === 'Knead a blanket or some dough 🍞'), `blanket=${blanket} dough=${dough}`);
