@@ -2,6 +2,14 @@
   "_comment": "Shown in the app's \"What's new\" window and used as the GitHub release text (release.yml). Add the new version at the TOP before tagging it. Newest first. icon: one emoji; text: one short line.",
   "releases": [
     {
+      "version": "1.0.3",
+      "date": "2026-11-27",
+      "title": "Longer biscuits",
+      "items": [
+        { "icon": "🍞", "text": "Kneading lasts about 10 seconds now. Ask for it from the right-click menu and she keeps kneading until you stop her (Stop kneading, a click or a pet)." }
+      ]
+    },
+    {
       "version": "1.0.2",
       "date": "2026-11-25",
       "title": "WaterCat 1.0: a whole lot of new cat",
